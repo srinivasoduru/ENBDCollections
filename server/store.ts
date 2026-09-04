@@ -27,6 +27,7 @@ export interface Session {
   stage: StageKey;
   escalated: boolean;
   escalationReason: EscalationCategory | null;
+  escalationVia: 'model' | 'script' | 'gate' | 'system' | null;
   resolved: boolean;
   disclosed: boolean | null;
   locked: boolean;
@@ -74,6 +75,7 @@ export class InMemorySessionStore implements SessionStore {
       stage: 'identify',
       escalated: false,
       escalationReason: null,
+      escalationVia: null,
       resolved: false,
       disclosed: null,
       locked: false,

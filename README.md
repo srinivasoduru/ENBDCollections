@@ -56,8 +56,34 @@ curl -s localhost:3001/api/session/…/trace       # full decision trace
 `npm run dev` and `npm run preview` mount the same Express app as Vite middleware, so the demo is
 still a single process with no CORS in the way.
 
+### The pre-flight gate
+
+Every customer turn is screened *before* the model sees it. Deterministic patterns run first
+(`server/compliance/patterns.ts` — English and Arabic, kept in one file so Legal can review it as a
+single artifact). If they are silent, a fast classifier catches paraphrase: "my situation has
+changed a lot since I took this out" carries no keyword and an unmistakable meaning.
+
+On a hit the model is **never invoked for that turn**. The server locks the session and returns a
+fixed handoff string — not model-generated, so it cannot negotiate, restate the balance or ask a
+follow-up question.
+
+Order is the security property, not an optimisation. The classifier is consulted only when the
+patterns are silent, so it can add escalations but never veto one — an instruction embedded in the
+customer's message cannot talk the gate out of a pattern hit.
+
+Screening failures escalate (fail closed), but are filed as `other` with `source: system`, never as
+a customer signal the customer did not give. A timeout must not appear in the audit as a hardship
+disclosure.
+
+With no credentials configured at all there is no classifier and no model, so screening runs on
+patterns alone rather than escalating every turn — the trace records which applied.
+
 Once a session escalates it is terminal: further turns return a fixed handoff string without
 reaching the model, and there is no unlock path. A human takes over out of band.
+
+```bash
+npm test    # 75 tests: patterns, ordering, fail-closed, and the model never being called
+```
 
 Model calls are proxied through the server so the API key never reaches the browser:
 
@@ -92,6 +118,7 @@ server/
   index.ts     standalone entry (npm run server)
   middleware.ts mounts the same app into Vite
   agent.ts     turn orchestration and the model tool loop
+  compliance/  patterns.ts (Legal reviews this), classifier.ts, preflight.ts
   tools.ts     the seven tool definitions and their handlers
   prompt.ts    the agent's operating instructions
   script.ts    the offline script served when the model is unavailable
@@ -112,9 +139,14 @@ Tool definitions, the system prompt and the offline script live under `server/` 
 reachable from the browser — the built client bundle contains no tool schemas, no prompt text and
 no credentials.
 
-The compliance gates from `design/ORCHESTRATOR_SPEC.md` are **not built yet**. Their insertion
-points are marked in `server/agent.ts`. Until they land, escalation still depends on the model
-choosing to call `escalate_to_human`, which is the weakness the gates exist to remove.
+Of the gates in `design/ORCHESTRATOR_SPEC.md`, the pre-flight gate is built. The **contact
+eligibility check** and the **post-generation gate** are not; their insertion points are marked in
+`server/agent.ts`. Until the post-generation gate lands, nothing inspects what the model says on
+its way out — an off-matrix figure or a legal threat would still reach the customer.
+
+`escalate_to_human` remains available to the model as a redundant path for phrasings the gate did
+not anticipate. The compliance panel distinguishes the two: caught by the gate means the model was
+never asked.
 
 ## Design system
 

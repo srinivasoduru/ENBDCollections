@@ -60,7 +60,21 @@ function buildPipeline(session: Session): PipelineStep[] {
  */
 function buildGuards(session: Session): GuardView[] {
   const used = (name: string): boolean => session.toolCalls.some((t) => t.name === name);
-  const { disclosed, escalated, escalationReason, resolved } = session;
+  const { disclosed, escalated, escalationReason, escalationVia, resolved } = session;
+
+  // How the hard stop fired matters more than that it fired. Caught by the gate
+  // means the model was never asked to respond to that turn at all; caught by
+  // the model's own tool call means the deterministic layer did not anticipate
+  // the phrasing and the redundant path did the work.
+  const hardStopDetail = escalated
+    ? escalationVia === 'gate'
+      ? `Caught by the pre-flight gate — ${escalationReason}. The model was never invoked for that turn.`
+      : escalationVia === 'system'
+        ? 'Screening could not complete, so the turn escalated on the fail-closed rule. The model was never invoked.'
+        : `Triggered by the agent itself — reason: ${escalationReason}. The pre-flight gate did not match this phrasing.`
+    : resolved
+      ? 'Not required — resolved without a hardship or dispute signal.'
+      : 'Every customer turn is screened for hardship, dispute, legal and stop-contact signals before the model sees it.';
 
   return [
     {
@@ -98,11 +112,7 @@ function buildGuards(session: Session): GuardView[] {
       id: 'hard_stop',
       status: escalated ? 'info' : resolved ? 'pass' : 'pending',
       title: 'Hardship / dispute hard stop',
-      detail: escalated
-        ? `Triggered correctly — reason: ${escalationReason}.`
-        : resolved
-          ? 'Not required — resolved without a hardship or dispute signal.'
-          : 'Monitoring every customer turn for hardship, dispute or legal signals.',
+      detail: hardStopDetail,
     },
     {
       id: 'contact_window',
@@ -136,6 +146,7 @@ export function buildState(session: Session): SessionState {
     trace: toDisplay(session),
     escalated: session.escalated,
     escalationReason: session.escalationReason,
+    escalationVia: session.escalationVia,
     resolved: session.resolved,
     disclosed: session.disclosed,
     locked: session.locked,

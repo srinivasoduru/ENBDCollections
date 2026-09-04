@@ -52,6 +52,8 @@ export interface SessionState {
   trace: ToolTraceEntry[];
   escalated: boolean;
   escalationReason: EscalationCategory | null;
+  /** What decided the escalation — shown in the compliance panel. */
+  escalationVia: 'model' | 'script' | 'gate' | 'system' | null;
   resolved: boolean;
   /** Null until the agent's opening turn has been checked. */
   disclosed: boolean | null;
@@ -97,6 +99,22 @@ export type TraceEntry =
   | { seq: number; at: string; kind: 'customer_turn'; text: string }
   | { seq: number; at: string; kind: 'model_call'; model: string; iterations: number; latencyMs: number; stopReason: string | null }
   | { seq: number; at: string; kind: 'tool_call'; name: string; input: unknown; output: unknown; gates: string[] }
+  /** A compliance gate ran. Recorded whether or not it fired: an examiner
+   *  needs to see that the check happened, not only that it caught something. */
+  | {
+      seq: number;
+      at: string;
+      kind: 'gate';
+      gate: 'preflight';
+      decision: 'pass' | 'escalate';
+      via?: 'pattern' | 'classifier' | 'system';
+      category?: EscalationCategory;
+      confidence?: number;
+      detail?: string;
+      latencyMs: number;
+      /** Versions in force for this decision, so the audit is reproducible. */
+      versions: Record<string, string | number>;
+    }
   | { seq: number; at: string; kind: 'agent_turn'; text: string; source: 'model' | 'script' | 'canned' }
   /** `source` records what actually decided, so a system failure or a scripted
    *  turn is never filed in the audit as a customer hardship signal. */

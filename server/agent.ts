@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import type { StatusResponse } from '../src/shared/api';
 import { personaById, type Persona } from '../src/shared/personas';
+import { type Classifier, classify } from './compliance/classifier';
+import { PREFLIGHT_VERSIONS, screen } from './compliance/preflight';
 import { LOCKED_REPLY, handoffFor } from './handoff';
 import { SESSION_OPENER, systemPrompt } from './prompt';
 import { scriptedTurn } from './script';
@@ -14,16 +16,19 @@ import { TOOL_DEFS, asCategory, traceTool, type ToolCall } from './tools';
  *
  * The pipeline the spec calls for is:
  *   1. session lookup / lock check
- *   2. pre-flight gate on customer text      ← not built yet
+ *   2. pre-flight gate on customer text
  *   3. contact eligibility check             ← not built yet
  *   4. model call with tool loop
  *   5. post-generation gate on model output  ← not built yet
  *   6. append trace, update state, return
  *
- * Steps 1, 4 and 6 are implemented here. The gate steps are deliberately absent
- * for now, and their insertion points are marked. Until they exist, escalation
- * still depends on the model choosing to call escalate_to_human — which is the
- * weakness this refactor exists to remove.
+ * Steps 1, 2, 4 and 6 are implemented. With the pre-flight gate in place,
+ * escalation on a hardship, dispute, legal or stop-contact signal no longer
+ * depends on the model choosing to call escalate_to_human: the server decides
+ * before the model is invoked, and on a hit it is not invoked at all. The tool
+ * remains available as a redundant path for cases the gate did not anticipate.
+ *
+ * Steps 3 and 5 are still absent and their insertion points are marked.
  */
 
 /** Overridable with AGENT_MODEL. */
@@ -104,6 +109,7 @@ function absorbToolCall(session: Session, call: ToolCall, source: 'model' | 'scr
   if (call.name === 'escalate_to_human') {
     session.escalated = true;
     session.escalationReason = call.reason ?? 'other';
+    session.escalationVia = source;
     session.locked = true;
     // Once the pre-flight gate exists, the model's own call becomes the
     // redundant path rather than the primary one.
@@ -248,8 +254,24 @@ export async function openSession(session: Session): Promise<TurnResult> {
   return produceTurn(session, persona, null);
 }
 
+/** Options exist so tests can supply a classifier without a network call. */
+export interface TurnOptions {
+  classifier?: Classifier | null;
+}
+
+/**
+ * The classifier needs the same credentials the main model does. With none
+ * configured, screening runs on patterns alone rather than failing closed on
+ * every turn — see the note on `screen`.
+ */
+const defaultClassifier = (): Classifier | null => (hasCredentials() ? classify : null);
+
 /** One customer turn. */
-export async function runTurn(session: Session, text: string): Promise<TurnResult> {
+export async function runTurn(
+  session: Session,
+  text: string,
+  { classifier = defaultClassifier() }: TurnOptions = {},
+): Promise<TurnResult> {
   const persona = requirePersona(session.personaId);
 
   // Step 1 — a locked session never reaches the model again.
@@ -261,9 +283,45 @@ export async function runTurn(session: Session, text: string): Promise<TurnResul
 
   appendTrace(session, { kind: 'customer_turn', text });
 
-  // ── step 2: pre-flight gate on the customer text belongs here. When it
-  //    lands it locks the session and returns handoffFor(category) WITHOUT
-  //    reaching the model call below.
+  // Step 2 — pre-flight gate. Runs before anything else touches the text.
+  const decision = await screen(text, classifier);
+  appendTrace(session, {
+    kind: 'gate',
+    gate: 'preflight',
+    decision: decision.escalate ? 'escalate' : 'pass',
+    latencyMs: decision.latencyMs,
+    versions: PREFLIGHT_VERSIONS,
+    ...(decision.classifierRan
+      ? {}
+      : !decision.escalate
+        ? { detail: 'Pattern-only screening — no classifier configured on this server.' }
+        : {}),
+    ...(decision.escalate
+      ? { via: decision.via, category: decision.category, detail: decision.detail }
+      : {}),
+    ...(decision.confidence !== undefined ? { confidence: decision.confidence } : {}),
+  });
+
+  if (decision.escalate) {
+    // The model is never invoked for this turn. The customer's text is not
+    // added to the model history and no tool runs.
+    session.escalated = true;
+    session.escalationReason = decision.category;
+    session.escalationVia = decision.via === 'system' ? 'system' : 'gate';
+    session.locked = true;
+    session.stage = 'close';
+
+    appendTrace(session, {
+      kind: 'escalation',
+      reason: decision.category,
+      source: decision.via === 'system' ? 'system' : 'gate',
+    });
+
+    const reply = handoffFor(decision.category);
+    absorbAgentTurn(session, reply, 'canned');
+    return { reply };
+  }
+
   // ── step 3: contact eligibility check belongs here.
 
   session.messages.push({ role: 'user', content: text });

@@ -7,6 +7,7 @@ import type {
   TurnResponse,
 } from '../src/shared/api';
 import { ApiError, agentStatus, openSession, runTurn } from './agent';
+import type { Classifier } from './compliance/classifier';
 import { buildState } from './state';
 import { InMemorySessionStore, appendTrace, type Session, type SessionStore } from './store';
 
@@ -23,9 +24,11 @@ const JSON_LIMIT = '128kb';
 
 export interface AppOptions {
   store?: SessionStore;
+  /** Overridable so tests can screen without a network call. */
+  classifier?: Classifier | null;
 }
 
-export function createApp({ store = new InMemorySessionStore() }: AppOptions = {}) {
+export function createApp({ store = new InMemorySessionStore(), classifier }: AppOptions = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: JSON_LIMIT }));
@@ -87,7 +90,7 @@ export function createApp({ store = new InMemorySessionStore() }: AppOptions = {
       session.inFlight = true;
 
       try {
-        const { reply, notice } = await runTurn(session, text);
+        const { reply, notice } = await runTurn(session, text, classifier !== undefined ? { classifier } : {});
         const state = buildState(session);
         res.json({
           reply,
