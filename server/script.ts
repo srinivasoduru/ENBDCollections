@@ -1,4 +1,4 @@
-import type { Persona } from './personas';
+import type { Persona } from '../src/shared/personas';
 import { traceTool, type ToolCall } from './tools';
 
 /**
@@ -119,7 +119,7 @@ const FLOWS: Record<string, ScriptStep[]> = {
 const CLOSED_LINE =
   "I've covered everything I can on this call. A Financial Remediation officer can pick up anything further.";
 
-export interface OfflineTurn {
+export interface ScriptedTurn {
   reply: string;
   toolCalls: ToolCall[];
   /** Cursor into the persona's flow for the next turn. */
@@ -133,7 +133,7 @@ export interface OfflineTurn {
  * `step` is the caller's cursor: pass 0 for the opening turn, then feed back
  * the `step` returned by the previous call.
  */
-export function offlineTurn(persona: Persona, step: number, say: string | null): OfflineTurn {
+export function scriptedTurn(persona: Persona, step: number, say: string | null): ScriptedTurn {
   const toolCalls: ToolCall[] = [];
 
   const reason = say ? detectEscalation(say) : null;

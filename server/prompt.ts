@@ -1,4 +1,4 @@
-import type { Persona } from './personas';
+import type { Persona } from '../src/shared/personas';
 
 /**
  * The agent's operating instructions.

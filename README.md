@@ -39,6 +39,26 @@ The agent reasons live and decides for itself which tools to call. The conversat
 the compliance panel and the tool trace are all driven by its actual behaviour — including when it
 correctly refuses to continue and escalates to a human officer.
 
+Everything behind the view runs server-side. The browser sends a string and renders what comes
+back; it holds no credentials, defines no tools, executes no tools, and computes none of the
+panels. The API is complete enough to drive from `curl` with the front end deleted:
+
+```bash
+npm run server                                   # standalone on :3001
+curl -s localhost:3001/api/status
+curl -s -X POST localhost:3001/api/session -H 'content-type: application/json' \
+  -d '{"personaId":"hardship"}'
+curl -s -X POST localhost:3001/api/turn -H 'content-type: application/json' \
+  -d '{"sessionId":"…","text":"My company let me go last month."}'
+curl -s localhost:3001/api/session/…/trace       # full decision trace
+```
+
+`npm run dev` and `npm run preview` mount the same Express app as Vite middleware, so the demo is
+still a single process with no CORS in the way.
+
+Once a session escalates it is terminal: further turns return a fixed handoff string without
+reaching the model, and there is no unlock path. A human takes over out of band.
+
 Model calls are proxied through the server so the API key never reaches the browser:
 
 ```bash
@@ -67,21 +87,34 @@ Two switches sit in the white utility strip:
 ## Layout
 
 ```
+server/
+  app.ts       the Express API — /session, /turn, /session/:id/trace
+  index.ts     standalone entry (npm run server)
+  middleware.ts mounts the same app into Vite
+  agent.ts     turn orchestration and the model tool loop
+  tools.ts     the seven tool definitions and their handlers
+  prompt.ts    the agent's operating instructions
+  script.ts    the offline script served when the model is unavailable
+  state.ts     projects a session into what the panels render
+  store.ts     session store behind an interface, in-memory for now
+  handoff.ts   fixed handoff strings, never model-generated
 src/
-  shared/      personas, tool definitions and handlers, system prompt, offline script
-               — the domain layer, imported by both the browser and the server
+  shared/      api.ts (wire types only, compiles to nothing) and personas
   data/        view content: levers, fleet, tool table, roadmap, simulation script
-  hooks/       live agent session, journey simulation, impact model
+  hooks/       live agent transport, journey simulation, impact model
   components/  header, layout primitives, architecture diagram
   views/       the six views
   styles/      design tokens and the component stylesheet
-server/        the Anthropic Messages API proxy and its Vite middleware
-design/        the original Claude Design handoff — transcripts and .dc.html prototypes
+design/        the original Claude Design handoff, and ORCHESTRATOR_SPEC.md
 ```
 
-`src/shared/tools.ts` is the single definition of what the agents can do. The server runs it for
-live sessions and the browser runs it for offline ones, so a tool trace means the same thing either
-way.
+Tool definitions, the system prompt and the offline script live under `server/` and are not
+reachable from the browser — the built client bundle contains no tool schemas, no prompt text and
+no credentials.
+
+The compliance gates from `design/ORCHESTRATOR_SPEC.md` are **not built yet**. Their insertion
+points are marked in `server/agent.ts`. Until they land, escalation still depends on the model
+choosing to call `escalate_to_human`, which is the weakness the gates exist to remove.
 
 ## Design system
 

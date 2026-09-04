@@ -1,21 +1,26 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type PluginOption } from 'vite';
 
-import { agentMiddleware } from './server/middleware';
+import { orchestratorMiddleware } from './server/middleware';
 
 /**
- * Serves the Live Agent model proxy alongside the app, in both `vite` and
- * `vite preview`, so the demo runs from a single process.
+ * Serves the orchestrator alongside the app, in both `vite` and `vite preview`,
+ * so the demo runs from a single process. The same Express app also runs
+ * standalone via `npm run server`.
  */
-const agentApi = (): PluginOption => ({
-  name: 'enbd-agent-api',
-  configureServer(server) {
-    server.middlewares.use(agentMiddleware);
-  },
-  configurePreviewServer(server) {
-    server.middlewares.use(agentMiddleware);
-  },
-});
+const orchestrator = (): PluginOption => {
+  // One app instance, so sessions survive across requests in dev.
+  const handler = orchestratorMiddleware();
+  return {
+    name: 'enbd-orchestrator',
+    configureServer(server) {
+      server.middlewares.use(handler);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handler);
+    },
+  };
+};
 
 export default defineConfig(({ mode }) => {
   // The credential is read here and used only by the server middleware. It is
@@ -27,7 +32,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), agentApi()],
+    plugins: [react(), orchestrator()],
     server: { port: 5173 },
     preview: { port: 4173 },
   };

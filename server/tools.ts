@@ -1,4 +1,17 @@
-import type { Persona } from './personas';
+import type { EscalationCategory } from '../src/shared/api';
+import type { Persona } from '../src/shared/personas';
+
+const CATEGORIES: EscalationCategory[] = [
+  'hardship',
+  'dispute',
+  'legal_representation',
+  'stop_contact_request',
+  'other',
+];
+
+/** Narrows a model-supplied reason; anything unrecognised becomes `other`. */
+export const asCategory = (value: unknown): EscalationCategory =>
+  CATEGORIES.includes(value as EscalationCategory) ? (value as EscalationCategory) : 'other';
 
 /**
  * The agent's entire callable surface. Narrow, typed functions: the model never
@@ -91,13 +104,20 @@ export const TOOL_DEFS: ToolDef[] = [
   },
 ];
 
-/** One entry in the on-screen tool trace. Values are pre-truncated for display. */
+/**
+ * A executed tool call, carrying both the raw values for the audit trace and
+ * the truncated strings the on-screen trace panel renders.
+ */
 export interface ToolCall {
   name: string;
+  /** Truncated for display. */
   inp: string;
+  /** Truncated for display. */
   out: string;
-  /** Parsed input, kept so the client can derive escalation reason without re-parsing display text. */
-  reason?: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  /** Set on escalate_to_human. */
+  reason?: EscalationCategory;
 }
 
 const bucketFor = (dpd: number): string =>
@@ -184,12 +204,15 @@ export function traceTool(
   name: string,
   input: Record<string, unknown>,
 ): { result: Record<string, unknown>; call: ToolCall } {
-  const result = runTool(persona, name, input);
+  const safeInput = input ?? {};
+  const result = runTool(persona, name, safeInput);
   const call: ToolCall = {
     name,
-    inp: truncate(JSON.stringify(input ?? {})),
+    inp: truncate(JSON.stringify(safeInput)),
     out: truncate(JSON.stringify(result)),
+    input: safeInput,
+    output: result,
   };
-  if (name === 'escalate_to_human' && typeof input.reason === 'string') call.reason = input.reason;
+  if (name === 'escalate_to_human') call.reason = asCategory(safeInput.reason);
   return { result, call };
 }

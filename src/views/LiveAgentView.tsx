@@ -1,76 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Hero, Panel } from '../components/primitives';
-import { PIPELINE_STEPS, useLiveAgent, type LiveAgentState } from '../hooks/useLiveAgent';
+import { useLiveAgent } from '../hooks/useLiveAgent';
+import type { GuardStatus } from '../shared/api';
 import { C } from '../shared/colors';
 import { PERSONAS } from '../shared/personas';
 
-type GuardState = 'pass' | 'flag' | 'info' | 'pending';
-
-const GUARD_MARK: Record<GuardState, string> = { pass: '✓', flag: '!', info: '→', pending: '·' };
-
-/**
- * The compliance floor as observed on this conversation.
- *
- * Three of these are structural — they hold whatever the model does, because
- * the tool surface makes the alternative impossible. The rest are read off the
- * agent's actual behaviour this session.
- */
-function guardsFor(live: LiveAgentState): { s: GuardState; title: string; detail: string }[] {
-  if (!live.persona) return [];
-  const { disclosed, escalated, escReason, resolved, usedTool } = live;
-
-  return [
-    {
-      s: disclosed === null ? 'pending' : disclosed ? 'pass' : 'flag',
-      title: 'Identification & purpose disclosure',
-      detail:
-        disclosed === null
-          ? "Checked against the agent's opening turn."
-          : disclosed
-            ? 'Detected — the agent identified Emirates NBD and stated the purpose of contact.'
-            : 'Not detected in the opening turn. In production this would fail QA before the call connected.',
-    },
-    {
-      s: usedTool('get_account_status') ? 'pass' : 'pending',
-      title: 'No un-sourced account claims',
-      detail: 'The agent must call get_account_status before stating any balance or DPD figure.',
-    },
-    {
-      s: usedTool('get_offer_matrix') ? 'pass' : 'pending',
-      title: 'Offer matrix enforcement',
-      detail:
-        'Terms may only come from the pre-approved cluster matrix. Off-matrix concessions are structurally impossible.',
-    },
-    {
-      s: 'pass',
-      title: 'Payment data tokenised',
-      detail:
-        'initiate_payment accepts an amount only. The model has no path to a card number or IBAN.',
-    },
-    {
-      s: escalated ? 'info' : resolved ? 'pass' : 'pending',
-      title: 'Hardship / dispute hard stop',
-      detail: escalated
-        ? `Triggered correctly — reason: ${escReason}.`
-        : resolved
-          ? 'Not required — resolved without a hardship or dispute signal.'
-          : 'Monitoring every customer turn for hardship, dispute or legal signals.',
-    },
-    {
-      s: 'pass',
-      title: 'CBUAE contact window & frequency',
-      detail:
-        'Permitted hours and attempt caps are enforced by the orchestrator before a call is placed, not by the agent.',
-    },
-    {
-      s: 'pass',
-      title: 'No third-party contact, no legal threat',
-      detail:
-        'Employer, family and reference contact are unavailable as tools. Legal, travel-ban and cheque language is prohibited in the system prompt.',
-    },
-  ];
-}
+const GUARD_MARK: Record<GuardStatus, string> = { pass: '✓', flag: '!', info: '→', pending: '·' };
 
 export function LiveAgentView() {
   const live = useLiveAgent();
@@ -83,16 +19,24 @@ export function LiveAgentView() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [live.transcript.length, live.busy]);
 
-  const { persona, started, busy, escalated } = live;
-  const locked = busy || escalated;
+  const { persona, started, busy, state, status } = live;
+  const escalated = state?.escalated ?? false;
+  const locked = state?.locked ?? false;
+  const inputLocked = busy || locked;
 
   const send = (text: string) => {
     live.say(text);
     setDraft('');
   };
 
+  // Before a session exists the badge reflects the server's capability probe;
+  // after that it reflects what actually produced the replies. While the probe
+  // is still in flight the badge claims neither — asserting OFFLINE SCRIPT
+  // before we know would misstate the mode to the room.
+  const mode = state?.mode ?? (status ? (status.live ? 'live' : 'offline') : null);
+  const modeLabel = mode === null ? 'CHECKING…' : mode === 'live' ? 'LIVE MODEL' : 'OFFLINE SCRIPT';
+  const modelName = state?.model ?? status?.model;
   const dot = escalated ? C.red : started ? '#4ADE80' : C.grey;
-  const modeLabel = live.mode === 'live' ? 'LIVE MODEL' : 'OFFLINE SCRIPT';
 
   return (
     <div>
@@ -126,20 +70,29 @@ export function LiveAgentView() {
             <div className="session__bar">
               <div className="session__id">
                 <span className="session__dot" style={{ background: dot }} aria-hidden="true" />
-                <span>SESSION — {persona ? `${persona.name} · ${persona.acct}` : 'select a customer'}</span>
+                <span>
+                  SESSION — {persona ? `${persona.name} · ${persona.acct}` : 'select a customer'}
+                </span>
               </div>
               <div className="session__actions">
                 <span
                   className="session__mode"
                   title={
-                    live.mode === 'live'
-                      ? `Real model calls${live.serverStatus?.model ? ` · ${live.serverStatus.model}` : ''}`
-                      : (live.serverStatus?.reason ?? 'Running the in-browser fallback script.')
+                    mode === null
+                      ? 'Asking the orchestrator whether model calls are available.'
+                      : mode === 'live'
+                        ? `Real model calls${modelName ? ` · ${modelName}` : ''}`
+                        : (status?.reason ?? 'The orchestrator is serving its offline script.')
                   }
                 >
                   {modeLabel}
                 </span>
-                <button type="button" className="session__reset" onClick={live.reset} disabled={!persona}>
+                <button
+                  type="button"
+                  className="session__reset"
+                  onClick={live.reset}
+                  disabled={!persona || busy}
+                >
                   RESET
                 </button>
               </div>
@@ -155,7 +108,7 @@ export function LiveAgentView() {
                   Ready to open the session with <b>{persona.name}</b>.
                 </div>
                 <button type="button" className="btn-primary" onClick={live.start} disabled={busy}>
-                  Start session
+                  {busy ? 'Opening…' : 'Start session'}
                 </button>
               </div>
             )}
@@ -165,7 +118,9 @@ export function LiveAgentView() {
                 <div className="transcript" ref={scroller}>
                   {live.transcript.map((m, i) => (
                     <div className={`bubble bubble--${m.role}`} key={i}>
-                      {m.role === 'agent' && <div className="bubble__who">ENBD COLLECTIONS AGENT</div>}
+                      {m.role === 'agent' && (
+                        <div className="bubble__who">ENBD COLLECTIONS AGENT</div>
+                      )}
                       {m.role === 'cust' && (
                         <div className="bubble__who">{persona.name.toUpperCase()}</div>
                       )}
@@ -177,14 +132,14 @@ export function LiveAgentView() {
 
                 <div className="composer">
                   <div className="composer__chips">
-                    {!escalated &&
+                    {!locked &&
                       persona.chips.map((c) => (
                         <button
                           key={c}
                           type="button"
                           className="composer__chip"
                           onClick={() => send(c)}
-                          disabled={locked}
+                          disabled={inputLocked}
                         >
                           {c}
                         </button>
@@ -195,18 +150,22 @@ export function LiveAgentView() {
                       type="text"
                       className="composer__input"
                       value={draft}
-                      placeholder={escalated ? 'Session closed — transferred to a human officer.' : 'Type as the customer…'}
+                      placeholder={
+                        locked
+                          ? 'Session closed — transferred to a human officer.'
+                          : 'Type as the customer…'
+                      }
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') send(draft);
                       }}
-                      disabled={locked}
+                      disabled={inputLocked}
                     />
                     <button
                       type="button"
                       className="composer__send"
                       onClick={() => send(draft)}
-                      disabled={locked || !draft.trim()}
+                      disabled={inputLocked || !draft.trim()}
                     >
                       Send
                     </button>
@@ -219,25 +178,29 @@ export function LiveAgentView() {
           <div className="stack">
             <Panel title="CONVERSATION STATE">
               <div className="pipeline">
-                {PIPELINE_STEPS.map((step, i) => {
-                  const done = i < live.stageIndex || (live.resolved && i <= live.stageIndex);
-                  const active = i === live.stageIndex && !escalated && !done;
-                  return (
-                    <div
-                      key={step.k}
-                      className={
-                        'pipeline__step' +
-                        (done ? ' pipeline__step--done' : active ? ' pipeline__step--active' : '')
-                      }
-                    >
-                      <div className="pipeline__mark">{done ? '✓' : i + 1}</div>
-                      <div className="pipeline__label">{step.label}</div>
-                    </div>
-                  );
-                })}
-                <div className={'pipeline__escalation' + (escalated ? ' pipeline__escalation--fired' : '')}>
+                {(state?.pipeline ?? PLACEHOLDER_PIPELINE).map((step, i) => (
+                  <div
+                    key={step.key}
+                    className={
+                      'pipeline__step' +
+                      (step.status === 'done'
+                        ? ' pipeline__step--done'
+                        : step.status === 'active'
+                          ? ' pipeline__step--active'
+                          : '')
+                    }
+                  >
+                    <div className="pipeline__mark">{step.status === 'done' ? '✓' : i + 1}</div>
+                    <div className="pipeline__label">{step.label}</div>
+                  </div>
+                ))}
+                <div
+                  className={
+                    'pipeline__escalation' + (escalated ? ' pipeline__escalation--fired' : '')
+                  }
+                >
                   {escalated
-                    ? `ESCALATED TO FR OFFICER — reason: ${live.escReason}. Autonomous handling has stopped.`
+                    ? `ESCALATED TO FR OFFICER — reason: ${state?.escalationReason}. Autonomous handling has stopped.`
                     : 'Escalation branch — fires on hardship, dispute, legal representation, or a request to stop contact.'}
                 </div>
               </div>
@@ -245,26 +208,31 @@ export function LiveAgentView() {
 
             <Panel title="COMPLIANCE FLOOR">
               <div className="guards">
-                {guardsFor(live).map((g) => (
-                  <div className={`guard guard--${g.s}`} key={g.title}>
-                    <div className="guard__mark">{GUARD_MARK[g.s]}</div>
+                {(state?.guards ?? []).map((g) => (
+                  <div className={`guard guard--${g.status}`} key={g.id}>
+                    <div className="guard__mark">{GUARD_MARK[g.status]}</div>
                     <div>
                       <div className="guard__title">{g.title}</div>
                       <div className="guard__detail">{g.detail}</div>
                     </div>
                   </div>
                 ))}
+                {!state && (
+                  <div className="panel__empty" style={{ padding: '8px 0' }}>
+                    Open a session to evaluate the compliance floor.
+                  </div>
+                )}
               </div>
             </Panel>
 
             <Panel title="TOOL CALL TRACE">
               <div className="trace">
-                {live.toolCalls.length === 0 && (
+                {(state?.trace.length ?? 0) === 0 && (
                   <div className="panel__empty" style={{ padding: '8px 0' }}>
                     No tool calls yet.
                   </div>
                 )}
-                {live.toolCalls.map((t, i) => (
+                {(state?.trace ?? []).map((t, i) => (
                   <div className="trace__row" key={i}>
                     <div className="trace__arrow">▸</div>
                     <div className="trace__call">
@@ -278,15 +246,24 @@ export function LiveAgentView() {
         </div>
 
         <p className="footnote">
-          {live.mode === 'live'
+          {mode === 'live'
             ? 'The model, its instructions, its tool-calling decisions and its language are live.'
-            : 'This session is running the offline fallback script, not a live model — the tool calls and panels are driven by the same functions, but the agent’s language is scripted.'}{' '}
-          Account data, payment processing and letter issuance are simulated in-browser rather than
-          hitting a core banking system. In production the compliance floor would be enforced
-          server-side by the orchestrator rather than relying on the agent to call the escalation
-          tool itself.
+            : 'This session is running the orchestrator’s offline script, not a live model — the tool calls and panels are driven by the same server-side handlers, but the agent’s language is scripted.'}{' '}
+          The model, the tools and the session state all run server-side; the browser holds no
+          credentials and computes none of the panels. Account data, payment processing and letter
+          issuance are simulated rather than hitting a core banking system.
         </p>
       </div>
     </div>
   );
 }
+
+/** Rendered before a session exists, so the panel is never empty. */
+const PLACEHOLDER_PIPELINE = [
+  { key: 'identify', label: 'Identify & disclose', status: 'pending' },
+  { key: 'verify', label: 'Verify account', status: 'pending' },
+  { key: 'assess', label: 'Assess segment & intent', status: 'pending' },
+  { key: 'resolve', label: 'Negotiate / resolve', status: 'pending' },
+  { key: 'confirm', label: 'Confirm & log', status: 'pending' },
+  { key: 'close', label: 'Close', status: 'pending' },
+] as const;
