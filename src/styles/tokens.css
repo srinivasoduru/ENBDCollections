@@ -1,0 +1,60 @@
+/*
+ * Emirates NBD — design tokens.
+ *
+ * Colours are sampled from ENBD's own web presence: navy #072448 from the nav
+ * bar, CTA blue #2665FF, the white utility strip with #757575 meta. Type is
+ * Outfit (the geometric sans closest to their headline face) for headings, nav
+ * and figures; Helvetica for body; IBM Plex Mono for data labels.
+ *
+ * One colour ladder, used with discipline:
+ *   crimson  — compliance floor and escalation, nothing else
+ *   green    — integration surface and passed gates, nothing else
+ */
+
+:root {
+  /* Brand */
+  --navy: #072448;
+  --slate: #3a4a63;
+  --blue: #2665ff;
+  --steel: #6b8cb8;
+  --green: #1e6b4f;
+  --red: #a8323c;
+  --grey: #8a94a3;
+
+  /* Surfaces */
+  --page: #f4f5f7;
+  --surface: #ffffff;
+  --zebra: #fafbfc;
+  --band: #f7f8fa;
+  --tint-blue: #eef2fa;
+  --tint-red: #fbf2f3;
+  --tint-green: #f0f6f2;
+
+  /* Rules */
+  --line: #e1e4ea;
+  --line-strong: #c8ced8;
+  --line-faint: #f1f3f6;
+  --line-hairline: #eef0f4;
+  --line-inverse: rgba(255, 255, 255, 0.14);
+  --line-inverse-strong: rgba(255, 255, 255, 0.24);
+
+  /* Ink */
+  --ink: #072448;
+  --ink-body: #4a5a70;
+  --ink-muted: #6b7686;
+  --ink-meta: #757575;
+  --ink-inverse: #ffffff;
+  --ink-inverse-dim: #8fa2bc;
+  --ink-inverse-body: #b9c6d6;
+
+  /* Type */
+  --sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --display: 'Outfit', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Measure */
+  --shell: 1320px;
+  --shell-wide: 1440px;
+  --shell-hero: 1560px;
+  --gutter: 40px;
+}
