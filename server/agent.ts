@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { StatusResponse } from '../src/shared/api';
 import { personaById, type Persona } from '../src/shared/personas';
 import { type Classifier, classify } from './compliance/classifier';
+import { collectNumbers, extractAmounts } from './compliance/money';
+import { OUTPUT_RULES_VERSION, screenOutput } from './compliance/output';
 import { PREFLIGHT_VERSIONS, screen } from './compliance/preflight';
 import { LOCKED_REPLY, handoffFor } from './handoff';
 import { SESSION_OPENER, systemPrompt } from './prompt';
@@ -106,6 +108,12 @@ function absorbToolCall(session: Session, call: ToolCall, source: 'model' | 'scr
   if (nextStage) session.stage = nextStage;
   if (isResolvingTool(call.name)) session.resolved = true;
 
+  // Record what the matrix actually served, so the post-generation gate can
+  // check the agent's figures against the terms it was really given.
+  if (call.name === 'get_offer_matrix') {
+    for (const value of collectNumbers(call.output)) session.servedAmounts.add(value);
+  }
+
   if (call.name === 'escalate_to_human') {
     session.escalated = true;
     session.escalationReason = call.reason ?? 'other';
@@ -206,7 +214,13 @@ function runScript(session: Session, persona: Persona, say: string | null): stri
  * scripted one, and the session state reports which mode produced the reply so
  * the front end can label it honestly.
  */
-async function produceTurn(session: Session, persona: Persona, say: string | null): Promise<TurnResult> {
+interface Produced {
+  reply: string;
+  source: 'model' | 'script' | 'canned';
+  notice?: string;
+}
+
+async function produceTurn(session: Session, persona: Persona, say: string | null): Promise<Produced> {
   const wasEscalated = session.escalated;
 
   /**
@@ -215,11 +229,11 @@ async function produceTurn(session: Session, persona: Persona, say: string | nul
    * negotiate, restate the balance or ask a follow-up question, and that is
    * only guaranteed if the text is not generated.
    */
-  const settle = (reply: string, source: 'model' | 'script'): TurnResult => {
+  const settle = (reply: string, source: 'model' | 'script'): Produced => {
     const escalatedNow = !wasEscalated && session.escalated;
-    const text = escalatedNow ? handoffFor(session.escalationReason) : reply;
-    absorbAgentTurn(session, text, escalatedNow ? 'canned' : source);
-    return { reply: text };
+    return escalatedNow
+      ? { reply: handoffFor(session.escalationReason), source: 'canned' }
+      : { reply, source };
   };
 
   if (session.mode === 'offline') {
@@ -245,13 +259,77 @@ async function produceTurn(session: Session, persona: Persona, say: string | nul
   }
 }
 
+/**
+ * Step 5 — the post-generation gate, then record the turn.
+ *
+ * Nothing the agent produces is recorded as spoken until it has passed. A
+ * blocked reply is written to the audit trace marked `suppressed` — the
+ * customer never sees it, but an examiner needs to know what was stopped —
+ * and the fixed handoff goes out in its place.
+ *
+ * Canned text is not re-screened: it is fixed, reviewed, and safe by
+ * construction, and running it through the gate would risk suppressing the
+ * very message that handles an escalation.
+ */
+function finaliseTurn(session: Session, persona: Persona, produced: Produced): TurnResult {
+  if (produced.source === 'canned') {
+    absorbAgentTurn(session, produced.reply, 'canned');
+    return { reply: produced.reply, ...(produced.notice ? { notice: produced.notice } : {}) };
+  }
+
+  const verdict = screenOutput(produced.reply, {
+    served: session.servedAmounts,
+    balance: persona.balance,
+    customerProposed: session.customerAmounts,
+  });
+
+  appendTrace(session, {
+    kind: 'gate',
+    gate: 'postgeneration',
+    decision: verdict.blocked ? 'block' : 'pass',
+    latencyMs: verdict.latencyMs,
+    versions: { outputRules: OUTPUT_RULES_VERSION },
+    ...(verdict.blocked
+      ? { rule: verdict.rule, detail: verdict.detail, evidence: verdict.evidence }
+      : {}),
+  });
+
+  if (!verdict.blocked) {
+    absorbAgentTurn(session, produced.reply, produced.source);
+    return { reply: produced.reply, ...(produced.notice ? { notice: produced.notice } : {}) };
+  }
+
+  // Suppressed: recorded, never sent.
+  appendTrace(session, {
+    kind: 'agent_turn',
+    text: produced.reply,
+    source: produced.source,
+    suppressed: true,
+  });
+
+  session.escalated = true;
+  session.escalationReason = 'other';
+  session.escalationVia = 'postgen';
+  session.blockedRule = verdict.rule;
+  session.locked = true;
+  session.stage = 'close';
+  appendTrace(session, { kind: 'escalation', reason: 'other', source: 'gate' });
+
+  const handoff = handoffFor('other');
+  absorbAgentTurn(session, handoff, 'canned');
+  return { reply: handoff, ...(produced.notice ? { notice: produced.notice } : {}) };
+}
+
 /** Opening turn, produced when the session is created. */
 export async function openSession(session: Session): Promise<TurnResult> {
   const persona = requirePersona(session.personaId);
   session.messages = [{ role: 'user', content: SESSION_OPENER }];
   // ── step 3: contact eligibility check belongs here, before the outbound
   //    contact is made. Not built yet.
-  return produceTurn(session, persona, null);
+  //
+  // The opening turn goes through the post-generation gate like any other: it
+  // is the first thing the customer hears, and it states the balance.
+  return finaliseTurn(session, persona, await produceTurn(session, persona, null));
 }
 
 /** Options exist so tests can supply a classifier without a network call. */
@@ -307,7 +385,7 @@ export async function runTurn(
     // added to the model history and no tool runs.
     session.escalated = true;
     session.escalationReason = decision.category;
-    session.escalationVia = decision.via === 'system' ? 'system' : 'gate';
+    session.escalationVia = decision.via === 'system' ? 'system' : 'preflight';
     session.locked = true;
     session.stage = 'close';
 
@@ -324,13 +402,14 @@ export async function runTurn(
 
   // ── step 3: contact eligibility check belongs here.
 
+  // Figures the customer proposes are allowed back in the agent's reply — it
+  // has to be able to repeat a number in order to decline it.
+  for (const amount of extractAmounts(text)) session.customerAmounts.add(amount);
+
   session.messages.push({ role: 'user', content: text });
-  const result = await produceTurn(session, persona, text);
 
-  // ── step 5: post-generation gate on result.reply belongs here. When it
-  //    fires it suppresses the reply, escalates, and returns the canned handoff.
-
-  return result;
+  // Steps 4 and 5.
+  return finaliseTurn(session, persona, await produceTurn(session, persona, text));
 }
 
 /** Exported so the locked-session path and the future gates share one source. */

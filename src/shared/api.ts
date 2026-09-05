@@ -52,8 +52,14 @@ export interface SessionState {
   trace: ToolTraceEntry[];
   escalated: boolean;
   escalationReason: EscalationCategory | null;
-  /** What decided the escalation — shown in the compliance panel. */
-  escalationVia: 'model' | 'script' | 'gate' | 'system' | null;
+  /**
+   * What decided the escalation — shown in the compliance panel.
+   * `preflight` means the model was never invoked for that turn; `postgen`
+   * means it ran and its reply was suppressed before anyone saw it.
+   */
+  escalationVia: 'model' | 'script' | 'preflight' | 'postgen' | 'system' | null;
+  /** Set when the post-generation gate blocked a reply. */
+  blockedRule: 'legal_threat' | 'bureau_promise' | 'third_party_contact' | 'off_matrix_offer' | null;
   resolved: boolean;
   /** Null until the agent's opening turn has been checked. */
   disclosed: boolean | null;
@@ -105,17 +111,31 @@ export type TraceEntry =
       seq: number;
       at: string;
       kind: 'gate';
-      gate: 'preflight';
-      decision: 'pass' | 'escalate';
+      gate: 'preflight' | 'postgeneration';
+      decision: 'pass' | 'escalate' | 'block';
       via?: 'pattern' | 'classifier' | 'system';
       category?: EscalationCategory;
+      /** Which post-generation rule fired. */
+      rule?: 'legal_threat' | 'bureau_promise' | 'third_party_contact' | 'off_matrix_offer';
+      /** The offending fragment or figure. */
+      evidence?: string;
       confidence?: number;
       detail?: string;
       latencyMs: number;
       /** Versions in force for this decision, so the audit is reproducible. */
       versions: Record<string, string | number>;
     }
-  | { seq: number; at: string; kind: 'agent_turn'; text: string; source: 'model' | 'script' | 'canned' }
+  /** `suppressed` marks a turn the post-generation gate blocked. It is recorded
+   *  precisely because the customer never saw it — an examiner needs to know
+   *  what was stopped, not just what was sent. */
+  | {
+      seq: number;
+      at: string;
+      kind: 'agent_turn';
+      text: string;
+      source: 'model' | 'script' | 'canned';
+      suppressed?: boolean;
+    }
   /** `source` records what actually decided, so a system failure or a scripted
    *  turn is never filed in the audit as a customer hardship signal. */
   | { seq: number; at: string; kind: 'escalation'; reason: EscalationCategory; source: 'model' | 'script' | 'gate' | 'system' }

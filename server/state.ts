@@ -60,18 +60,24 @@ function buildPipeline(session: Session): PipelineStep[] {
  */
 function buildGuards(session: Session): GuardView[] {
   const used = (name: string): boolean => session.toolCalls.some((t) => t.name === name);
-  const { disclosed, escalated, escalationReason, escalationVia, resolved } = session;
+  const { disclosed, escalated, escalationReason, escalationVia, blockedRule, resolved } = session;
+
+  /** The post-generation gate's most recent block, if any. */
+  const blocked = (...rules: typeof blockedRule[]): boolean =>
+    blockedRule !== null && rules.includes(blockedRule);
 
   // How the hard stop fired matters more than that it fired. Caught by the gate
   // means the model was never asked to respond to that turn at all; caught by
   // the model's own tool call means the deterministic layer did not anticipate
   // the phrasing and the redundant path did the work.
   const hardStopDetail = escalated
-    ? escalationVia === 'gate'
+    ? escalationVia === 'preflight'
       ? `Caught by the pre-flight gate — ${escalationReason}. The model was never invoked for that turn.`
-      : escalationVia === 'system'
-        ? 'Screening could not complete, so the turn escalated on the fail-closed rule. The model was never invoked.'
-        : `Triggered by the agent itself — reason: ${escalationReason}. The pre-flight gate did not match this phrasing.`
+      : escalationVia === 'postgen'
+        ? 'The agent produced a non-compliant reply. It was suppressed before the customer saw it and the session was handed to an officer.'
+        : escalationVia === 'system'
+          ? 'Screening could not complete, so the turn escalated on the fail-closed rule. The model was never invoked.'
+          : `Triggered by the agent itself — reason: ${escalationReason}. The pre-flight gate did not match this phrasing.`
     : resolved
       ? 'Not required — resolved without a hardship or dispute signal.'
       : 'Every customer turn is screened for hardship, dispute, legal and stop-contact signals before the model sees it.';
@@ -96,10 +102,11 @@ function buildGuards(session: Session): GuardView[] {
     },
     {
       id: 'offer_matrix',
-      status: used('get_offer_matrix') ? 'pass' : 'pending',
+      status: blocked('off_matrix_offer') ? 'flag' : used('get_offer_matrix') ? 'pass' : 'pending',
       title: 'Offer matrix enforcement',
-      detail:
-        'Terms may only come from the pre-approved cluster matrix. Off-matrix concessions are structurally impossible.',
+      detail: blocked('off_matrix_offer')
+        ? 'A reply stated a figure the matrix did not return for this account. It was suppressed before the customer saw it.'
+        : 'Terms may only come from the pre-approved cluster matrix. Every reply is checked against the figures the matrix actually served before it is sent.',
     },
     {
       id: 'tokenised_payment',
@@ -123,10 +130,15 @@ function buildGuards(session: Session): GuardView[] {
     },
     {
       id: 'third_party',
-      status: 'pass',
+      status: blocked('legal_threat', 'third_party_contact', 'bureau_promise') ? 'flag' : 'pass',
       title: 'No third-party contact, no legal threat',
-      detail:
-        'Employer, family and reference contact are unavailable as tools. Legal, travel-ban and cheque language is prohibited in the system prompt.',
+      detail: blocked('legal_threat')
+        ? 'A reply referred to legal or criminal consequences. It was suppressed before the customer saw it.'
+        : blocked('third_party_contact')
+          ? 'A reply referred to contacting an employer, sponsor, family member or reference. It was suppressed before the customer saw it.'
+          : blocked('bureau_promise')
+            ? 'A reply appeared to promise a change to the customer’s Al Etihad Credit Bureau record. It was suppressed before the customer saw it.'
+            : 'Employer, family and reference contact are unavailable as tools, and every reply is scanned for legal threats, third-party contact and credit-bureau promises before it is sent.',
     },
   ];
 }
@@ -147,6 +159,7 @@ export function buildState(session: Session): SessionState {
     escalated: session.escalated,
     escalationReason: session.escalationReason,
     escalationVia: session.escalationVia,
+    blockedRule: session.blockedRule,
     resolved: session.resolved,
     disclosed: session.disclosed,
     locked: session.locked,

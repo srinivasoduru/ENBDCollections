@@ -139,7 +139,7 @@ describe('turn pipeline with the pre-flight gate', () => {
     assert.equal(result.escalated, true);
     assert.equal(result.locked, true);
     assert.equal(result.state.escalationReason, 'hardship');
-    assert.equal(result.state.escalationVia, 'gate');
+    assert.equal(result.state.escalationVia, 'preflight');
   });
 
   it('NEVER invokes the model on a classifier hit', async () => {
@@ -149,7 +149,7 @@ describe('turn pipeline with the pre-flight gate', () => {
     const result = await turn(sessionId, 'things have been different since flagme happened');
     assert.equal(upstreamCalls, 0);
     assert.equal(result.escalated, true);
-    assert.equal(result.state.escalationVia, 'gate');
+    assert.equal(result.state.escalationVia, 'preflight');
   });
 
   it('NEVER invokes the model on an Arabic pattern hit', async () => {
@@ -259,9 +259,9 @@ describe('turn pipeline with the pre-flight gate', () => {
     await turn(sessionId, 'I lost my job last month.');
 
     const entries = await trace(sessionId);
-    const gates = entries.filter((e) => e.kind === 'gate');
+    const gates = entries.filter((e) => e.kind === 'gate' && e.gate === 'preflight');
 
-    assert.equal(gates.length, 2, 'both turns should record a gate decision');
+    assert.equal(gates.length, 2, 'both turns should record a pre-flight decision');
     assert.equal(gates[0].kind === 'gate' && gates[0].decision, 'pass');
     assert.equal(gates[1].kind === 'gate' && gates[1].decision, 'escalate');
     assert.equal(gates[1].kind === 'gate' && gates[1].via, 'pattern');

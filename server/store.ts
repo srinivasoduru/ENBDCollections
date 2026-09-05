@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 
 import type { EscalationCategory, SessionMode, StageKey, TraceEntry } from '../src/shared/api';
+import type { OutputRule } from './compliance/output';
 import type { ToolCall } from './tools';
 
 /**
@@ -27,8 +28,17 @@ export interface Session {
   stage: StageKey;
   escalated: boolean;
   escalationReason: EscalationCategory | null;
-  escalationVia: 'model' | 'script' | 'gate' | 'system' | null;
+  escalationVia: 'model' | 'script' | 'preflight' | 'postgen' | 'system' | null;
+  blockedRule: OutputRule | null;
   resolved: boolean;
+
+  /**
+   * Amounts the agent is allowed to state, accumulated as the conversation
+   * runs: every number the offer matrix actually served, and every figure the
+   * customer proposed. The post-generation gate validates against these.
+   */
+  servedAmounts: Set<number>;
+  customerAmounts: Set<number>;
   disclosed: boolean | null;
   locked: boolean;
 
@@ -76,7 +86,10 @@ export class InMemorySessionStore implements SessionStore {
       escalated: false,
       escalationReason: null,
       escalationVia: null,
+      blockedRule: null,
       resolved: false,
+      servedAmounts: new Set(),
+      customerAmounts: new Set(),
       disclosed: null,
       locked: false,
       scriptStep: 0,

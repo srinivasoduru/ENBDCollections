@@ -78,11 +78,32 @@ disclosure.
 With no credentials configured at all there is no classifier and no model, so screening runs on
 patterns alone rather than escalating every turn — the trace records which applied.
 
+### The post-generation gate
+
+The pre-flight gate screens what the customer says; this screens what the bank says back, which is
+where the conduct breach would actually occur. Every reply — including the opening turn — is scanned
+before it is sent, for:
+
+- **legal or criminal threats** — court, police, travel ban, cheque case, prosecution, absconding
+- **credit-bureau promises** — any claim to remove, clear or fix an AECB record
+- **third-party contact** — contacting an employer, sponsor, family member or guarantor
+- **off-matrix offers** — a monetary figure the offer matrix did not return for this account
+
+On a hit the reply is **suppressed** — the customer never sees it — the session escalates and locks,
+and the fixed handoff goes out instead. The blocked reply is written to the audit trace marked
+`suppressed`, because an examiner needs to know what was stopped, not only what was sent.
+
+The off-matrix check extracts *monetary* figures, not numerals. A naive numeral scan would block
+compliant replies full of days past due, tenor in months, percentages and dates, and every false
+positive suppresses a good answer and locks the session. Amounts are checked against the values the
+matrix actually served this session, the outstanding balance, and any figure the customer proposed —
+the agent has to be able to repeat a number in order to decline it.
+
 Once a session escalates it is terminal: further turns return a fixed handoff string without
 reaching the model, and there is no unlock path. A human takes over out of band.
 
 ```bash
-npm test    # 75 tests: patterns, ordering, fail-closed, and the model never being called
+npm test    # 134 tests across both gates
 ```
 
 Model calls are proxied through the server so the API key never reaches the browser:
@@ -93,15 +114,14 @@ cp .env.example .env     # then add ANTHROPIC_API_KEY
 
 The model defaults to `claude-opus-5`; override with `AGENT_MODEL`.
 
-**Without a key, or if the network drops mid-pitch, the view degrades instead of dying.** It falls
-back to an in-browser script that drives the same tool functions, so the panels still move and a
-hardship or dispute signal still escalates correctly. The session badge reads `LIVE MODEL` or
-`OFFLINE SCRIPT`, and the footnote under the view changes with it — nobody in the room is misled
-about which one they are watching.
+**Without a key, or if the network drops mid-pitch, the view degrades instead of dying.** The server
+falls back to a script that drives the same tool handlers, so the panels still move and the gates
+still run. The session badge reads `LIVE MODEL` or `OFFLINE SCRIPT`, and the footnote under the view
+changes with it — nobody in the room is misled about which one they are watching.
 
-Account data, payments and letter issuance are simulated in all modes. In production the compliance
-floor would be enforced server-side by the orchestrator rather than relying on the agent to call the
-escalation tool itself.
+Account data, payments and letter issuance are simulated in all modes. The compliance floor itself
+is not simulated: it is enforced by the orchestrator, before and after the model, rather than by the
+agent choosing to call the escalation tool.
 
 ## Presenter controls
 
@@ -118,7 +138,8 @@ server/
   index.ts     standalone entry (npm run server)
   middleware.ts mounts the same app into Vite
   agent.ts     turn orchestration and the model tool loop
-  compliance/  patterns.ts (Legal reviews this), classifier.ts, preflight.ts
+  compliance/  patterns.ts (Legal reviews this), classifier.ts, preflight.ts,
+               output.ts and money.ts (the post-generation gate)
   tools.ts     the seven tool definitions and their handlers
   prompt.ts    the agent's operating instructions
   script.ts    the offline script served when the model is unavailable
@@ -139,10 +160,8 @@ Tool definitions, the system prompt and the offline script live under `server/` 
 reachable from the browser — the built client bundle contains no tool schemas, no prompt text and
 no credentials.
 
-Of the gates in `design/ORCHESTRATOR_SPEC.md`, the pre-flight gate is built. The **contact
-eligibility check** and the **post-generation gate** are not; their insertion points are marked in
-`server/agent.ts`. Until the post-generation gate lands, nothing inspects what the model says on
-its way out — an off-matrix figure or a legal threat would still reach the customer.
+Of the gates in `design/ORCHESTRATOR_SPEC.md`, the pre-flight and post-generation gates are built.
+The **contact eligibility check** is not; its insertion point is marked in `server/agent.ts`.
 
 `escalate_to_human` remains available to the model as a redundant path for phrasings the gate did
 not anticipate. The compliance panel distinguishes the two: caught by the gate means the model was
