@@ -8,7 +8,7 @@ export interface SimEvent {
 }
 
 export const BUCKETS = [
-  { name: 'CURRENT', range: '0 DPD', w: 12 },
+  { name: 'PREDICT & PREVENT', range: 'pre-due', w: 12 },
   { name: 'BUCKET 1', range: '1–30 DPD', w: 22 },
   { name: 'BUCKET 2', range: '31–60 DPD', w: 22 },
   { name: 'BUCKET 3', range: '61–90 DPD', w: 22 },
@@ -27,6 +27,11 @@ export const dpdToPct = (dpd: number): number => {
 
 export const SIM_SCRIPT: SimEvent[] = [
   {
+    d: -5,
+    a: 'SEGMENT',
+    m: 'Deferral cohort scan. Account is in the CBUAE March 2026 deferral population — resumption date known in advance, so this is a calendar, not a prediction. Queued for pre-resumption contact.',
+  },
+  {
     d: -3,
     a: 'SEGMENT',
     m: 'Pre-due scan. Salary credit for Rahul Menon not received on expected date — early warning flag raised three days before due date.',
@@ -44,7 +49,7 @@ export const SIM_SCRIPT: SimEvent[] = [
   {
     d: 3,
     a: 'ENGAGEMENT',
-    m: 'WhatsApp reminder sent in English (language inferred from prior servicing history). Delivered, read, no reply.',
+    m: 'Secure in-app message sent in English (language inferred from prior servicing history). Delivered, read, no reply.',
   },
   {
     d: 7,
@@ -85,7 +90,7 @@ export const SIM_SCRIPT: SimEvent[] = [
   {
     d: 26,
     a: 'NEGOTIATION',
-    m: 'Confirmation sent via WhatsApp and email. Account flagged as arrangement-in-force; contact suppressed while the plan performs.',
+    m: 'Confirmation sent via secure in-app message and email. Account flagged as arrangement-in-force; contact suppressed while the plan performs.',
   },
   {
     d: 56,
@@ -120,7 +125,7 @@ export const SIM_SCRIPT: SimEvent[] = [
   {
     d: 88,
     a: 'SYSTEM',
-    m: 'Run complete. 19 agent actions · 1 human touch · 0 conduct breaches. Account did not roll past 90 DPD.',
+    m: 'Run complete. 17 agent actions · 1 human touch · 0 conduct breaches. Account did not roll past 90 DPD.',
   },
 ];
 

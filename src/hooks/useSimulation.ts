@@ -38,9 +38,10 @@ function project(events: SimEvent[]): Omit<SimState, 'events' | 'status'> {
   }
 
   // Scores appear once the Segment Agent has pulled them, and are re-scored
-  // when the Supervisor detects the broken promise.
-  const scored = events.length >= 2;
-  const rescored = events.length >= 10;
+  // when the Supervisor detects the broken promise. Read off the events rather
+  // than their positions, so inserting one earlier cannot silently shift these.
+  const scored = events.some((e) => /scores pulled/i.test(e.m));
+  const rescored = events.some((e) => /re-scored/i.test(e.m));
 
   const acctStatus =
     last.d >= 86

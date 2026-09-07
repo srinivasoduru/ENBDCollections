@@ -13,6 +13,15 @@ export type GuardStatus = 'pass' | 'flag' | 'info' | 'pending';
 /** Whether this session's replies come from the model or the offline script. */
 export type SessionMode = 'live' | 'offline';
 
+/** Which post-generation rule a blocked reply broke. */
+export type OutputRule =
+  | 'legal_threat'
+  | 'bureau_promise'
+  | 'third_party_contact'
+  | 'off_matrix_offer'
+  | 'premature_disclosure'
+  | 'narration';
+
 export type EscalationCategory =
   | 'hardship'
   | 'dispute'
@@ -59,19 +68,56 @@ export interface SessionState {
    */
   escalationVia: 'model' | 'script' | 'preflight' | 'postgen' | 'system' | null;
   /** Set when the post-generation gate blocked a reply. */
-  blockedRule: 'legal_threat' | 'bureau_promise' | 'third_party_contact' | 'off_matrix_offer' | null;
+  blockedRule: OutputRule | null;
   resolved: boolean;
   /** Null until the agent's opening turn has been checked. */
   disclosed: boolean | null;
   locked: boolean;
+
+  /* ---- pre-contact outcomes: no conversation exists in either case ---- */
+  /** The Segment Agent suppressed outreach on this account. */
+  suppressed: boolean;
+  /** Contact was refused before placement, outside the CBUAE window. */
+  contactRefused: boolean;
+  /** Hour of day the contact was attempted. */
+  contactHour: number;
+  /** The permitted window, e.g. "09:00–20:00". */
+  contactWindow: string;
+
+  /* ---- right-party verification ---- */
+  identityConfirmed: boolean;
+  thirdParty: boolean;
+  aiDisclosed: boolean | null;
+
+  /**
+   * The Remediation Agent's officer handover pack, present only after a
+   * hardship escalation. These terms were never spoken to the customer.
+   */
+  officerPack: OfficerPack | null;
+}
+
+export interface OfficerPack {
+  caseId: string;
+  status: string;
+  extendedPlanMonths: number;
+  extendedPlanMonthlyAed: number;
+  arrearsWaiverPct: number;
+  settlementFloorAed: number;
+  eosbEstimateAed: number | null;
+  netAfterOffsetAed: number | null;
 }
 
 export interface CreateSessionRequest {
   personaId: string;
+  /** Hour of day to attempt contact, 0–23. Drives the eligibility check. */
+  contactHour?: number;
+  /** Show the conversation anyway on an account the Segment Agent suppressed. */
+  override?: boolean;
 }
 
 export interface CreateSessionResponse {
   sessionId: string;
+  /** Empty when contact was suppressed or refused — no conversation opened. */
   openingTurn: string;
   state: SessionState;
   /** Set when the server had to explain something to the room, e.g. a fallback. */
@@ -116,7 +162,7 @@ export type TraceEntry =
       via?: 'pattern' | 'classifier' | 'system';
       category?: EscalationCategory;
       /** Which post-generation rule fired. */
-      rule?: 'legal_threat' | 'bureau_promise' | 'third_party_contact' | 'off_matrix_offer';
+      rule?: OutputRule;
       /** The offending fragment or figure. */
       evidence?: string;
       confidence?: number;

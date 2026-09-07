@@ -6,8 +6,9 @@ import type {
   TraceResponse,
   TurnResponse,
 } from '../src/shared/api';
-import { ApiError, agentStatus, openSession, runTurn } from './agent';
+import { ApiError, ContactRefusedError, agentStatus, openSession, runTurn, suppressContact } from './agent';
 import type { Classifier } from './compliance/classifier';
+import { personaById } from '../src/shared/personas';
 import { buildState } from './state';
 import { InMemorySessionStore, appendTrace, type Session, type SessionStore } from './store';
 
@@ -45,14 +46,29 @@ export function createApp({ store = new InMemorySessionStore(), classifier }: Ap
     '/api/session',
     asyncRoute(async (req, res: Response<CreateSessionResponse>) => {
       const personaId = requireString(req.body?.personaId, 'personaId');
-      const status = agentStatus();
-      const session = store.create(personaId, status.live ? 'live' : 'offline', status.model);
+      const persona = personaById(personaId);
+      if (!persona) throw new ApiError(`Unknown persona: ${personaId}`, 400, 'unknown_persona');
 
-      appendTrace(session, {
-        kind: 'session_created',
-        personaId,
-        mode: session.mode,
+      const contactHour = requireHour(req.body?.contactHour);
+      const override = req.body?.override === true;
+      const status = agentStatus();
+      const session = store.create(personaId, status.live ? 'live' : 'offline', status.model, {
+        contactHour,
+        suppressed: Boolean(persona.suppress) && !override,
+        overrodeSuppression: override,
       });
+
+      appendTrace(session, { kind: 'session_created', personaId, mode: session.mode });
+
+      // Suppression is a decision taken before any conversation exists: the
+      // self-cure model expects this customer to pay unaided, so no outbound
+      // contact is placed at all. The scores that drove it are still recorded.
+      if (session.suppressed) {
+        suppressContact(session);
+        store.save(session);
+        res.status(201).json({ sessionId: session.id, openingTurn: '', state: buildState(session) });
+        return;
+      }
 
       try {
         const { reply, notice } = await openSession(session);
@@ -64,6 +80,18 @@ export function createApp({ store = new InMemorySessionStore(), classifier }: Ap
           ...(notice ? { notice } : {}),
         });
       } catch (err) {
+        // A refused contact is a legitimate outcome, not a failure: the session
+        // is kept so the panels can show why the call was never placed.
+        if (err instanceof ContactRefusedError) {
+          store.save(session);
+          res.status(201).json({
+            sessionId: session.id,
+            openingTurn: '',
+            state: buildState(session),
+            notice: err.message,
+          });
+          return;
+        }
         // A session that could not open is not left behind as a live handle.
         store.delete(session.id);
         throw err;
@@ -162,6 +190,16 @@ function mustFind(store: SessionStore, id: string): Session {
   const session = store.get(id);
   if (!session) throw new ApiError('No such session.', 404, 'session_not_found');
   return session;
+}
+
+/** Defaults to 14:00 — mid-afternoon, comfortably inside the permitted window. */
+function requireHour(value: unknown): number {
+  if (value === undefined || value === null) return 14;
+  const hour = Number(value);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new ApiError('contactHour must be an integer between 0 and 23.', 400, 'invalid_request');
+  }
+  return hour;
 }
 
 function requireString(value: unknown, field: string): string {

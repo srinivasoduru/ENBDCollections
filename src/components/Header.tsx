@@ -1,4 +1,4 @@
-import { TABS, type ViewId } from '../data/content';
+import { VISIBLE_TABS, type ViewId } from '../data/content';
 
 interface HeaderProps {
   view: ViewId;
@@ -74,7 +74,7 @@ export function Header({
             </div>
           </div>
           <nav className="tabs">
-            {TABS.map((tab) => (
+            {VISIBLE_TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"

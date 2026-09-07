@@ -40,6 +40,11 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 export interface LiveAgentClient {
   persona: Persona | null;
+  /** Hour of day the contact is attempted, driving the eligibility check. */
+  contactHour: number;
+  setContactHour: (hour: number) => void;
+  /** Open a suppressed account's conversation anyway, for demonstration. */
+  override: () => void;
   started: boolean;
   busy: boolean;
   transcript: TranscriptEntry[];
@@ -47,7 +52,6 @@ export interface LiveAgentClient {
   state: SessionState | null;
   status: StatusResponse | null;
   pickPersona: (p: Persona) => void;
-  start: () => void;
   say: (text: string) => void;
   reset: () => void;
 }
@@ -58,6 +62,8 @@ export function useLiveAgent(): LiveAgentClient {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [contactHour, setHour] = useState(14);
+  const overrideRef = useRef(false);
 
   // Read inside async callbacks, which must not close over a stale value.
   const sessionId = useRef<string | null>(null);
@@ -91,24 +97,83 @@ export function useLiveAgent(): LiveAgentClient {
 
   const clearSession = useCallback((next: Persona | null) => {
     sessionId.current = null;
+    overrideRef.current = false;
     setPersona(next);
     setState(null);
     setTranscript([]);
     setBusyBoth(false);
   }, []);
 
+  /**
+   * Opening happens as soon as a persona is chosen, because the interesting
+   * outcomes — suppression and a refused contact — are decided before anyone
+   * would press a button, and the panels have to show them.
+   */
+  const openFor = useCallback(
+    (p: Persona, hour: number, override: boolean) => {
+      setBusyBoth(true);
+      void (async () => {
+        try {
+          const data = await postJson<CreateSessionResponse>('/api/session', {
+            personaId: p.id,
+            contactHour: hour,
+            ...(override ? { override: true } : {}),
+          });
+          sessionId.current = data.sessionId;
+          setState(data.state);
+          setTranscript(
+            data.openingTurn
+              ? [
+                  ...(data.notice ? [{ role: 'sys' as const, text: data.notice }] : []),
+                  { role: 'agent' as const, text: data.openingTurn },
+                ]
+              : [],
+          );
+        } catch (err) {
+          const why = err instanceof Error ? err.message : 'Could not open the session.';
+          setTranscript([{ role: 'sys', text: `Could not open the session — ${why}` }]);
+        } finally {
+          setBusyBoth(false);
+        }
+      })();
+    },
+    [],
+  );
+
   const pickPersona = useCallback(
     (p: Persona) => {
       if (busyRef.current) return;
       clearSession(p);
+      openFor(p, contactHour, false);
     },
-    [clearSession],
+    [clearSession, contactHour, openFor],
   );
 
   const reset = useCallback(() => {
-    if (busyRef.current) return;
+    if (busyRef.current || !persona) return;
     clearSession(persona);
-  }, [clearSession, persona]);
+    openFor(persona, contactHour, false);
+  }, [clearSession, contactHour, openFor, persona]);
+
+  /** Moving the clock re-decides the contact, which is the point of the control. */
+  const setContactHour = useCallback(
+    (hour: number) => {
+      setHour(hour);
+      if (busyRef.current || !persona) return;
+      const override = overrideRef.current;
+      clearSession(persona);
+      overrideRef.current = override;
+      openFor(persona, hour, override);
+    },
+    [clearSession, openFor, persona],
+  );
+
+  const override = useCallback(() => {
+    if (busyRef.current || !persona) return;
+    clearSession(persona);
+    overrideRef.current = true;
+    openFor(persona, contactHour, true);
+  }, [clearSession, contactHour, openFor, persona]);
 
   /** Appends the agent's turn, plus any notice and the escalation banner. */
   const absorb = useCallback((reply: string, next: SessionState, notice?: string) => {
@@ -129,25 +194,6 @@ export function useLiveAgent(): LiveAgentClient {
       return next;
     });
   }, []);
-
-  const start = useCallback(() => {
-    if (!persona || busyRef.current || sessionId.current) return;
-    setBusyBoth(true);
-    void (async () => {
-      try {
-        const data = await postJson<CreateSessionResponse>('/api/session', {
-          personaId: persona.id,
-        });
-        sessionId.current = data.sessionId;
-        absorb(data.openingTurn, data.state, data.notice);
-      } catch (err) {
-        const why = err instanceof Error ? err.message : 'Could not open the session.';
-        setTranscript((t) => [...t, { role: 'sys', text: `Could not open the session — ${why}` }]);
-      } finally {
-        setBusyBoth(false);
-      }
-    })();
-  }, [absorb, persona]);
 
   const say = useCallback(
     (text: string) => {
@@ -178,8 +224,10 @@ export function useLiveAgent(): LiveAgentClient {
     transcript,
     state,
     status,
+    contactHour,
+    setContactHour,
+    override,
     pickPersona,
-    start,
     say,
     reset,
   };

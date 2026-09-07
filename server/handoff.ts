@@ -27,5 +27,9 @@ export const HANDOFF: Record<EscalationCategory, string> = {
 export const LOCKED_REPLY =
   'This conversation has been passed to a colleague in our Financial Remediation team. They will be in touch, and they already have everything we discussed.';
 
+/** What a session whose contact was refused replies with, if anything asks. */
+export const REFUSED_REPLY =
+  'No contact was placed on this account. The requested time falls outside the hours Emirates NBD is permitted to make collections contact.';
+
 export const handoffFor = (category: EscalationCategory | null): string =>
   HANDOFF[category ?? 'other'];

@@ -47,12 +47,8 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'get_offer_matrix',
     description:
-      "Return the pre-approved payment plan, tenor extension, arrears waiver and settlement options available for this account's cluster. You may ONLY offer terms this returns. You must never invent, improve, or round a term.",
-    input_schema: {
-      type: 'object',
-      properties: { hardship_indicated: { type: 'boolean' } },
-      required: ['hardship_indicated'],
-    },
+      "Return the pre-approved Debt Assist options for this account's cluster. You may ONLY offer terms this returns. You must never invent, improve, extend or round a term. This tool has no hardship variant by design: hardship is not a better offer, it is a hard stop — if the customer indicates hardship you must call escalate_to_human instead of this tool.",
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'log_promise_to_pay',
@@ -105,6 +101,23 @@ export const TOOL_DEFS: ToolDef[] = [
 ];
 
 /**
+ * Functions the orchestrator runs on its own account, never offered to the
+ * conversational agent.
+ *
+ * `suppress_contact` and `check_contact_eligibility` are decisions taken before
+ * a conversation exists. `open_hardship_case` and `calculate_eosb_offset` are
+ * the Remediation Agent's work, which begins only once the conversation has
+ * stopped — putting them in the agent's tool list would make the enhanced terms
+ * reachable from a live call, which is exactly what must not happen.
+ */
+export const ORCHESTRATOR_TOOLS = [
+  'suppress_contact',
+  'check_contact_eligibility',
+  'open_hardship_case',
+  'calculate_eosb_offset',
+] as const;
+
+/**
  * A executed tool call, carrying both the raw values for the audit trace and
  * the truncated strings the on-screen trace panel renders.
  */
@@ -119,6 +132,20 @@ export interface ToolCall {
   /** Set on escalate_to_human. */
   reason?: EscalationCategory;
 }
+
+/**
+ * The CBUAE permitted contact window. Checked before a call is placed, not
+ * after — the agent has no way to override it because it never gets asked.
+ */
+export const CONTACT_WINDOW = { openHour: 9, closeHour: 20, timezone: 'Asia/Dubai' } as const;
+
+const pad = (h: number): string => String(h).padStart(2, '0');
+
+export const contactPermitted = (hour: number): boolean =>
+  hour >= CONTACT_WINDOW.openHour && hour < CONTACT_WINDOW.closeHour;
+
+export const contactWindowLabel = (): string =>
+  `${pad(CONTACT_WINDOW.openHour)}:00–${pad(CONTACT_WINDOW.closeHour)}:00`;
 
 const bucketFor = (dpd: number): string =>
   dpd <= 30 ? 'Bucket 1' : dpd <= 60 ? 'Bucket 2' : dpd <= 90 ? 'Bucket 3' : 'Bucket 4';
@@ -156,17 +183,20 @@ export function runTool(
       };
 
     case 'get_offer_matrix': {
-      const hardship = Boolean(input.hardship_indicated);
+      // Deliberately has no hardship variant. Enhanced terms exist, but they are
+      // prepared for an approving officer after handover — never reachable from
+      // a live conversation. A more generous offer is not the response to
+      // hardship; stopping is.
       const b = persona.balance;
       return {
-        pay_in_full: { amount_aed: b, arrears_waiver_pct: hardship ? 15 : 5 },
+        pay_in_full: { amount_aed: b, arrears_waiver_pct: 5 },
         plan_3_month: { months: 3, monthly_aed: Math.round(b / 3) },
         plan_6_month: { months: 6, monthly_aed: Math.round(b / 6) },
-        plan_12_month: hardship ? { months: 12, monthly_aed: Math.round(b / 12) } : null,
         settlement: {
-          min_acceptable_aed: Math.round(b * (hardship ? 0.72 : 0.85)),
+          min_acceptable_aed: Math.round(b * 0.85),
           requires_approval: 'collections_manager',
         },
+        note: 'No hardship variant exists in this matrix. Hardship routes to a person, not to a larger waiver.',
       };
     }
 
@@ -190,6 +220,50 @@ export function runTool(
 
     case 'escalate_to_human':
       return { status: 'transferred', queue: 'FR_officer_priority', reason: input.reason };
+
+    /* ---- orchestrator-only, never in the agent's tool list ---- */
+
+    case 'suppress_contact':
+      return {
+        decision: 'no_contact',
+        channel_allowed: 'reminder_and_payment_link_only',
+        reason: input.reason,
+      };
+
+    case 'check_contact_eligibility': {
+      const hour = Number(input.hour);
+      const permitted = hour >= CONTACT_WINDOW.openHour && hour < CONTACT_WINDOW.closeHour;
+      return {
+        permitted,
+        requested_hour: hour,
+        window: `${pad(CONTACT_WINDOW.openHour)}:00-${pad(CONTACT_WINDOW.closeHour)}:00 ${CONTACT_WINDOW.timezone}`,
+        action: permitted ? 'proceed' : 'REFUSED_BEFORE_PLACEMENT',
+      };
+    }
+
+    case 'open_hardship_case': {
+      const b = persona.balance;
+      return {
+        case_id: 'DA-' + Math.floor(10000 + Math.random() * 89999),
+        status: 'prepared_for_officer_approval',
+        prepared_options: {
+          pay_in_full: { amount_aed: b, arrears_waiver_pct: 15 },
+          plan_12_month: { months: 12, monthly_aed: Math.round(((b / 12) * 0.9)) },
+          settlement: { floor_aed: Math.round(b * 0.72) },
+        },
+        visibility: 'OFFICER ONLY — not disclosed to the customer by any agent',
+      };
+    }
+
+    case 'calculate_eosb_offset': {
+      const eosb = Math.round(persona.balance * 0.34);
+      return {
+        eosb_estimate_aed: eosb,
+        salary_transfer: persona.salary,
+        net_exposure_after_offset_aed: persona.balance - eosb,
+        status: 'attached_to_case_file',
+      };
+    }
 
     default:
       return { status: 'unknown_tool' };

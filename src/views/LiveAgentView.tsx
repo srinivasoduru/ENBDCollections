@@ -23,6 +23,8 @@ export function LiveAgentView() {
   const escalated = state?.escalated ?? false;
   const locked = state?.locked ?? false;
   const inputLocked = busy || locked;
+  const suppressed = state?.suppressed ?? false;
+  const refused = state?.contactRefused ?? false;
 
   const send = (text: string) => {
     live.say(text);
@@ -43,8 +45,8 @@ export function LiveAgentView() {
       <Hero
         eyebrow="04 · LIVE — REAL MODEL, REAL TOOL CALLS"
         title="Talk to the agent as the customer."
-        lede="This is not a scripted walkthrough. Pick a customer, then type anything. The agent reasons live, decides for itself which tools to call, and the panels on the right update from its actual behaviour — including when it correctly refuses to continue."
-        ledeWidth={880}
+        lede="This is not a scripted walkthrough. Pick a customer, then type anything. The agent reasons live, decides for itself which tools to call, and the panels on the right update from its actual behaviour. Four moments to watch: it leaves Maya alone, it refuses an out-of-hours contact, it rescues a broken promise, and it stops the instant Ahmed mentions hardship."
+        ledeWidth={920}
       />
 
       <div className="shell shell--wide view" style={{ paddingTop: 44 }}>
@@ -64,6 +66,54 @@ export function LiveAgentView() {
             </button>
           ))}
         </div>
+
+        <div className="preflight">
+          <div className="preflight__label">PRE-FLIGHT · COMPLIANCE LAYER</div>
+          <label className="preflight__clock">
+            CONTACT TIME
+            <input
+              type="range"
+              min={6}
+              max={23}
+              step={1}
+              value={live.contactHour}
+              onChange={(e) => live.setContactHour(Number(e.target.value))}
+              disabled={busy}
+            />
+            <b style={{ color: refused ? 'var(--red)' : 'var(--green)' }}>
+              {String(live.contactHour).padStart(2, '0')}:00 — {refused ? 'REFUSED' : 'permitted'}
+            </b>
+          </label>
+          <div className="preflight__note">
+            CBUAE window {state?.contactWindow ?? '09:00–20:00'} · enforced before placement
+          </div>
+        </div>
+
+        {suppressed && persona && (
+          <div className="suppress">
+            <div className="suppress__kicker">SEGMENT AGENT · CONTACT SUPPRESSED</div>
+            <div className="suppress__headline">The model decided not to chase her.</div>
+            <p className="suppress__body">
+              Self-cure score <b>{persona.selfcure.replace(/\s*\(.*\)/, '')}</b> — very likely to
+              pay on her own. No call, no collector queue, no dialer time. She receives a reminder
+              and a payment link only. Roughly three in four first-missed-payment card accounts never
+              reach a second, so chasing them is pure cost.
+            </p>
+            <div className="suppress__message">
+              <div className="suppress__message-head">SECURE IN-APP MESSAGE · ENBD X · DAY {persona.dpd}</div>
+              <div>
+                Your AED {persona.balance.toLocaleString('en-US')} card payment is {persona.dpd} days
+                late. Pay within 48 hours and the fee is waived.
+              </div>
+            </div>
+            <button type="button" className="btn-primary" onClick={live.override} disabled={busy}>
+              Override — contact her anyway
+            </button>
+            <span className="suppress__aside">
+              for demonstration: see the inbound conversation instead
+            </span>
+          </div>
+        )}
 
         <div className="live-grid">
           <div className="session">
@@ -102,18 +152,32 @@ export function LiveAgentView() {
               <div className="session__placeholder">Select a customer profile above to begin.</div>
             )}
 
-            {persona && !started && (
-              <div className="session__ready">
-                <div className="session__ready-text">
-                  Ready to open the session with <b>{persona.name}</b>.
-                </div>
-                <button type="button" className="btn-primary" onClick={live.start} disabled={busy}>
-                  {busy ? 'Opening…' : 'Start session'}
-                </button>
+            {persona && busy && !started && (
+              <div className="session__placeholder">Placing the contact…</div>
+            )}
+
+            {persona && suppressed && (
+              <div className="session__placeholder">
+                No outbound session opened for <b style={{ color: 'var(--navy)' }}>{persona.name}</b>.
+                <br />
+                <span className="session__aside">Segment Agent suppressed contact — see above.</span>
               </div>
             )}
 
-            {persona && started && (
+            {persona && refused && !suppressed && (
+              <div className="session__placeholder session__placeholder--refused">
+                Contact refused by the compliance layer.
+                <br />
+                <span className="session__aside">
+                  Requested time {String(live.contactHour).padStart(2, '0')}:00 is outside the CBUAE
+                  window of {state?.contactWindow ?? '09:00–20:00'}.
+                  <br />
+                  The action is refused before placement. The agent cannot override it.
+                </span>
+              </div>
+            )}
+
+            {persona && started && !suppressed && !refused && (
               <>
                 <div className="transcript" ref={scroller}>
                   {live.transcript.map((m, i) => (
@@ -224,6 +288,53 @@ export function LiveAgentView() {
                 )}
               </div>
             </Panel>
+
+            {state?.officerPack && (
+              <Panel title="REMEDIATION AGENT · OFFICER HANDOVER PACK">
+                <div className="pack">
+                  <p className="pack__intro">
+                    The conversation stopped. The work did not. Prepared for an approving officer —{' '}
+                    <b>never disclosed to the customer by any agent</b>.
+                  </p>
+                  <div className="kv kv--flush">
+                    {[
+                      ['CASE ID', state.officerPack.caseId],
+                      ['STATUS', state.officerPack.status],
+                      [
+                        'EXTENDED PLAN',
+                        `${state.officerPack.extendedPlanMonths} months · AED ${state.officerPack.extendedPlanMonthlyAed.toLocaleString('en-US')}/mo`,
+                      ],
+                      ['ARREARS WAIVER', `${state.officerPack.arrearsWaiverPct}% (vs 5% standard)`],
+                      [
+                        'SETTLEMENT FLOOR',
+                        `AED ${state.officerPack.settlementFloorAed.toLocaleString('en-US')}`,
+                      ],
+                      ...(state.officerPack.eosbEstimateAed !== null
+                        ? ([
+                            [
+                              'EOSB OFFSET',
+                              `AED ${state.officerPack.eosbEstimateAed.toLocaleString('en-US')}`,
+                            ],
+                            [
+                              'NET AFTER OFFSET',
+                              `AED ${(state.officerPack.netAfterOffsetAed ?? 0).toLocaleString('en-US')}`,
+                            ],
+                          ] as [string, string][])
+                        : []),
+                    ].map(([k, v]) => (
+                      <div className="kv__row" key={k}>
+                        <span className="kv__k">{k}</span>
+                        <span className="kv__v">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="pack__note">
+                    These terms were never available to the negotiation agent and were never spoken
+                    aloud. A more generous offer is not the response to hardship — a person is.
+                  </p>
+                </div>
+              </Panel>
+            )}
 
             <Panel title="TOOL CALL TRACE">
               <div className="trace">

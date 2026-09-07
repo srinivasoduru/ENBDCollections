@@ -1,11 +1,11 @@
 # Emirates NBD — Autonomous Collections Agent Fleet
 
 A presentation-grade prototype for a Group Financial Remediation risk committee review: a fleet of
-AI agents that sits on top of the existing ENBD estate — Finacle, the collections system, the dialer
-and the AECB bureau feed — and works the delinquency book, inside a hard compliance floor for CBUAE
-conduct rules.
+AI agents that sits on top of the existing ENBD estate — DCORE, core banking, the dialer and the
+AECB bureau feed — and works the delinquency book as deferrals unwind, inside a hard compliance
+floor for CBUAE conduct rules.
 
-Six views, reachable from the tab row:
+Six views, five of them on the tab row:
 
 | View                | What it does                                                                        |
 | ------------------- | ----------------------------------------------------------------------------------- |
@@ -14,7 +14,7 @@ Six views, reachable from the tab row:
 | 03 Architecture     | The estate diagram and the eight typed functions the agents can call                 |
 | 04 Live Agent       | A real conversation with a real model making real tool calls                         |
 | 05 Journey Sim      | One account across ninety days, executed by the fleet                                |
-| 06 Impact & Plan    | An assumptions model, a twelve-week plan and three go/no-go gates                    |
+| 06 Impact & Plan    | An assumptions model, a twelve-week plan and three go/no-go gates — built, but hidden from the tab row for the CRO session |
 
 ## Running it
 
@@ -56,6 +56,33 @@ curl -s localhost:3001/api/session/…/trace       # full decision trace
 `npm run dev` and `npm run preview` mount the same Express app as Vite middleware, so the demo is
 still a single process with no CORS in the way.
 
+### Before a conversation exists
+
+Two decisions are taken before any outbound contact is placed, and both are visible in the Live
+Agent view because in a demo they are the point — the most compliant call is the one never made.
+
+**Contact eligibility.** The clock slider sets the hour the contact is attempted. Outside the CBUAE
+window of 09:00–20:00 the contact is refused *before placement*: no session opens, the model is
+never invoked, and the agent cannot talk its way past it because it is never asked.
+
+**Contact suppression.** Maya's self-cure score is 0.86, so the Segment Agent suppresses outreach
+entirely — no call, no collector queue, no dialer time, just a reminder and a payment link. A
+presenter override opens the conversation anyway for demonstration.
+
+### Identity before disclosure
+
+The agent does not know who answered. Its opening turn may not name a product, a balance or arrears
+at all: it identifies itself as an AI assistant (CBUAE AI Guidance Note) and asks only whether it is
+speaking with the account holder. If a third party answers, the contact ends without disclosing
+anything. Disclosing account detail before confirmation is a blocked reply, not a warning.
+
+### Hardship is a hard stop, not a better offer
+
+`get_offer_matrix` has no hardship variant, by design. Enhanced terms — longer tenor, larger waiver,
+lower settlement floor — exist, but the Remediation Agent prepares them for an approving officer
+*after* handover, as an officer pack the customer never hears. A more generous offer is not the
+response to hardship; stopping is.
+
 ### The pre-flight gate
 
 Every customer turn is screened *before* the model sees it. Deterministic patterns run first
@@ -88,6 +115,8 @@ before it is sent, for:
 - **credit-bureau promises** — any claim to remove, clear or fix an AECB record
 - **third-party contact** — contacting an employer, sponsor, family member or guarantor
 - **off-matrix offers** — a monetary figure the offer matrix did not return for this account
+- **premature disclosure** — account detail spoken before the account holder was confirmed
+- **narration** — the agent describing its own tool use, or naming a function or system aloud
 
 On a hit the reply is **suppressed** — the customer never sees it — the session escalates and locks,
 and the fixed handoff goes out instead. The blocked reply is written to the audit trace marked
@@ -103,7 +132,7 @@ Once a session escalates it is terminal: further turns return a fixed handoff st
 reaching the model, and there is no unlock path. A human takes over out of band.
 
 ```bash
-npm test    # 134 tests across both gates
+npm test    # 203 tests across both gates and the pre-contact layer
 ```
 
 Model calls are proxied through the server so the API key never reaches the browser:
@@ -160,8 +189,8 @@ Tool definitions, the system prompt and the offline script live under `server/` 
 reachable from the browser — the built client bundle contains no tool schemas, no prompt text and
 no credentials.
 
-Of the gates in `design/ORCHESTRATOR_SPEC.md`, the pre-flight and post-generation gates are built.
-The **contact eligibility check** is not; its insertion point is marked in `server/agent.ts`.
+All three gates in `design/ORCHESTRATOR_SPEC.md` are built: contact eligibility, the pre-flight
+gate, and the post-generation gate.
 
 `escalate_to_human` remains available to the model as a redundant path for phrasings the gate did
 not anticipate. The compliance panel distinguishes the two: caught by the gate means the model was

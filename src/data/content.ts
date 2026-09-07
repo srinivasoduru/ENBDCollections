@@ -2,22 +2,45 @@ import { C } from '../shared/colors';
 
 export type ViewId = 'proposition' | 'fleet' | 'arch' | 'live' | 'journey' | 'impact';
 
-export const TABS: { id: ViewId; label: string }[] = [
+export interface Tab {
+  id: ViewId;
+  label: string;
+  /** Kept in the build but off the tab row — figures not in the CRO deck. */
+  hidden?: boolean;
+}
+
+export const TABS: Tab[] = [
   { id: 'proposition', label: '01 PROPOSITION' },
   { id: 'fleet', label: '02 AGENT FLEET' },
   { id: 'arch', label: '03 ARCHITECTURE' },
   { id: 'live', label: '04 LIVE AGENT' },
   { id: 'journey', label: '05 JOURNEY SIM' },
-  { id: 'impact', label: '06 IMPACT & PLAN' },
+  { id: 'impact', label: '06 IMPACT & PLAN', hidden: true },
 ];
 
-/** Public ENBD figures, from ENBD's own FY-2025 and H1-2025 results releases. */
+export const VISIBLE_TABS = TABS.filter((t) => !t.hidden);
+
+/** Public ENBD figures, from ENBD's own FY-2025 and H1-2026 results releases. */
 export const FIGURES = [
-  { value: '1–180', label: 'DPD RANGE WORKED BY FINANCIAL\nREMEDIATION TODAY' },
-  { value: '2.4%', label: 'GROUP IMPAIRED LOAN RATIO\nFY-2025 REPORTED' },
-  { value: '35%', label: 'UAE CREDIT CARD SPEND\nMARKET SHARE' },
+  {
+    value: 'AED 13.5B',
+    label: 'DEFERRED ACROSS 135,031 CUSTOMERS\n127,753 OF THEM INDIVIDUALS · JUL 2026',
+  },
+  { value: '+36%', label: 'RETAIL BOOK GROWTH\nEND 2024 TO JUNE 2026' },
+  {
+    value: 'AED 1.4B',
+    label: 'GROUP IMPAIRMENT CHARGE H1-2026\nFROM AED 0.3B CREDIT · AED 865M OVERLAY',
+  },
   { value: '7 days', label: 'MANDATED LIABILITY-LETTER SLA\nCBUAE — FINED ELSEWHERE AT AED 1.82M' },
 ];
+
+export const PROPOSITION = {
+  title:
+    'Deferrals unwind in H2 2026. An agent fleet on top of DCORE absorbs the wave without growing the team in proportion.',
+  lede: "Not a replacement for the ENBD estate. A reasoning layer above it. Each agent owns one lever of the collections value chain, calls the systems already in place, and operates inside CBUAE conduct rules that are enforced structurally — not left to a model's judgement. Collectors take months to recruit and train; agents scale in days and hold conduct constant under pressure.",
+  footnote:
+    "These four levers map onto the A–D journey stages in the proposal deck: Predict & Prevent, Engage Early, Resolve, and Recover. Portfolio figures shown throughout this demo are illustrative and scaled to a representative UAE retail unsecured book. Public ENBD figures cited on this page are from ENBD's own FY-2025 and H1-2026 results releases.",
+};
 
 export const STANCES = [
   {
@@ -71,7 +94,7 @@ export const LEVERS: Lever[] = [
     agent: 'ENGAGEMENT AGENT',
     owner: 'Financial Remediation',
     change:
-      'One agent across WhatsApp, SMS, IVR, email and voice — generating the message per segment and language rather than maintaining 40 static templates.',
+      'One agent across SMS, voice, email and secure in-app messaging — generating the message per segment and language rather than maintaining 40 static templates.',
   },
   {
     no: '4',
@@ -95,7 +118,7 @@ export const LEVERS: Lever[] = [
     agent: 'INTEGRATION LAYER',
     owner: 'Group Technology',
     change:
-      'Tool-calling adapters into Finacle, the collections system of record, AECB, the dialer and the payment gateway. No rip-and-replace.',
+      'Tool-calling adapters into DCORE, core banking, AECB, the dialer and the payment gateway. No rip-and-replace.',
   },
 ];
 
@@ -114,7 +137,7 @@ export const FLEET: FleetAgent[] = [
     name: 'Segment Agent',
     lever: 'LEVER 1 · COLLECTION MODELS',
     color: C.navy,
-    desc: 'Reads PD, self-cure propensity and cluster assignment at the moment of contact. Suppresses outreach entirely on accounts the self-cure model expects to pay on their own — the single largest cost saving in the fleet.',
+    desc: 'Reads PD, self-cure propensity and cluster assignment at the moment of contact. Suppresses outreach entirely on accounts the self-cure model expects to pay on their own — the single largest cost saving in the fleet, and the moment to watch in the Live Agent tab.',
     tools: ['get_segment_scores', 'get_account_status', 'suppress_contact'],
   },
   {
@@ -130,7 +153,7 @@ export const FLEET: FleetAgent[] = [
     name: 'Engagement Agent',
     lever: 'LEVER 3 · ALTERNATIVE CHANNELS',
     color: C.blue,
-    desc: 'The customer-facing voice across WhatsApp, SMS, IVR, email and outbound call. Generates the message per segment, tenure of debt and language — Arabic, English, Hindi, Malayalam, Tagalog — rather than maintaining static template libraries.',
+    desc: 'The customer-facing voice across SMS, outbound voice, email and secure in-app messaging in ENBD X. Generates the message per segment, tenure of debt and language — Arabic, English, Hindi, Malayalam, Tagalog — rather than maintaining static template libraries.',
     tools: ['send_message', 'place_call', 'detect_language', 'log_disposition'],
   },
   {
@@ -144,10 +167,10 @@ export const FLEET: FleetAgent[] = [
   {
     glyph: '05',
     name: 'Remediation Agent',
-    lever: 'HARDSHIP & DOCUMENTATION',
+    lever: 'HARDSHIP · POST-HANDOVER ONLY',
     color: C.green,
-    desc: 'Owns the ENBD Debt Assist and deferral pathways, plus liability, no-liability and clearance letters against the seven-working-day CBUAE clock. Handles EOSB and salary-transfer clearance flows on job change.',
-    tools: ['open_hardship_case', 'issue_letter', 'calculate_eosb_offset'],
+    desc: 'Runs only after the conversation has stopped. Prepares the enhanced Debt Assist options — longer tenor, larger waiver, lower settlement floor — as a recommendation for an approving officer, plus the EOSB offset position and letters against the seven-working-day CBUAE clock. These terms are never reachable from a live conversation.',
+    tools: ['open_hardship_case', 'calculate_eosb_offset', 'issue_letter'],
   },
   {
     glyph: '06',
@@ -180,7 +203,7 @@ export const FLEET_RATIONALE = [
 export const TOOL_ROWS = [
   {
     fn: 'get_account_status()',
-    sys: 'Finacle / collections',
+    sys: 'DCORE · core banking',
     con: 'Read-only. Returns balance, DPD, product, bucket, prior PTP history.',
   },
   {
@@ -200,7 +223,7 @@ export const TOOL_ROWS = [
   },
   {
     fn: 'log_promise_to_pay()',
-    sys: 'Collections system of record',
+    sys: 'DCORE · system of record',
     con: 'Writes PTP amount and date. Monitored for broken-promise escalation.',
   },
   {
@@ -224,7 +247,7 @@ export const ROADMAP = [
   {
     phase: 'WEEKS 1–3',
     title: 'Integration discovery and segment lock',
-    body: 'Map what is actually callable across Finacle, the collections system, the dialer and the payment gateway. Pick one cluster — early-bucket credit cards with salary transfer is the highest-yield, lowest-risk starting point — and lock the offer matrix with Collections Strategy and Legal.',
+    body: 'Map what is actually callable across DCORE, core banking, the dialer and the payment gateway. Pick one cluster — early-bucket credit cards with salary transfer is the highest-yield, lowest-risk starting point — and lock the Debt Assist matrix with Collections Strategy and Legal.',
   },
   {
     phase: 'WEEKS 4–7',

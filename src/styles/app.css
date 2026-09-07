@@ -1447,3 +1447,144 @@ input {
     overflow-x: auto;
   }
 }
+
+/* --------------------------------------------------- pre-contact layer --- */
+
+/*
+ * The two decisions taken before a conversation exists. Both are shown above
+ * the session panel because in a demo they are the point: the most compliant
+ * call is the one that never gets placed.
+ */
+.preflight {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.preflight__label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--grey);
+}
+.preflight__clock {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-body);
+}
+.preflight__clock input[type='range'] {
+  width: 190px;
+  accent-color: var(--blue);
+}
+.preflight__clock b {
+  font-variant-numeric: tabular-nums;
+  min-width: 116px;
+}
+.preflight__note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--grey);
+  margin-left: auto;
+}
+
+.suppress {
+  border: 1px solid var(--green);
+  border-left: 3px solid var(--green);
+  background: var(--tint-green);
+  padding: 22px 24px 24px;
+  margin-bottom: 18px;
+}
+.suppress__kicker {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--green);
+  margin-bottom: 10px;
+}
+.suppress__headline {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+.suppress__body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-body);
+  margin: 0 0 16px;
+  max-width: 760px;
+  text-wrap: pretty;
+}
+.suppress__body b {
+  color: var(--navy);
+}
+.suppress__message {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 13px 15px;
+  max-width: 540px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  color: var(--navy);
+  line-height: 1.5;
+}
+.suppress__message-head {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--grey);
+  margin-bottom: 7px;
+}
+.suppress__aside {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--grey);
+  margin-left: 12px;
+}
+
+.session__aside {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--grey);
+  line-height: 1.6;
+}
+.session__placeholder--refused {
+  color: var(--red);
+}
+.session__placeholder--refused .session__aside {
+  color: var(--red);
+}
+
+/* The officer pack: terms the customer never heard. */
+.pack {
+  padding: 16px 18px 18px;
+}
+.pack__intro {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-muted);
+  margin: 0 0 14px;
+}
+.pack__intro b {
+  color: var(--green);
+}
+.kv--flush {
+  padding: 0;
+}
+.pack__note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--grey);
+  margin: 14px 0 0;
+}

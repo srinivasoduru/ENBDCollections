@@ -58,8 +58,8 @@ function startUpstream(): Promise<number> {
         send(tools, 'tool_use');
         return;
       }
-      // The opening turn must itself pass the gate, so keep it clean. The
-      // opener stays in history all conversation, so check only the last turn.
+      // The opening turn must itself pass the gate, so keep it clean: an AI
+      // disclosure and an identity question, with no account detail at all.
       const messages = (parsed.messages ?? []) as { content: unknown }[];
       const last = messages[messages.length - 1];
       const isOpening =
@@ -69,7 +69,7 @@ function startUpstream(): Promise<number> {
           {
             type: 'text',
             text: isOpening
-              ? 'This is Emirates NBD regarding the outstanding amount on your account.'
+              ? 'Good afternoon, I am an AI assistant of Emirates NBD. Am I speaking with Mohammed?'
               : nextReply,
           },
         ],
@@ -89,14 +89,27 @@ const quietClassifier: Classifier = async () => ({
   confidence: 0.01,
 });
 
-const openSession = async (personaId = 'early'): Promise<CreateSessionResponse> => {
+/** `negotiate` is used throughout: `early` is suppressed and opens no session. */
+const openSession = async (personaId = 'negotiate'): Promise<CreateSessionResponse> => {
   const res = await fetch(`${base}/api/session`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ personaId }),
+    body: JSON.stringify({ personaId, contactHour: 14 }),
   });
   assert.equal(res.status, 201);
   return (await res.json()) as CreateSessionResponse;
+};
+
+/**
+ * Opens a session and confirms the account holder, because until identity is
+ * confirmed every reply naming an amount is blocked by its own rule — which is
+ * correct, and not what these tests are about.
+ */
+const openConfirmed = async (): Promise<string> => {
+  const { sessionId } = await openSession();
+  nextReply = 'Thank you. How would you like to proceed?';
+  await turn(sessionId, 'Yes, speaking.');
+  return sessionId;
 };
 
 /** Returns the raw body too, so we can assert the blocked text is nowhere in it. */
@@ -136,7 +149,7 @@ describe('post-generation gate', () => {
   });
 
   it('lets a compliant reply through untouched', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'I can look at that with you. What would work for you this month?';
 
     const { data } = await turn(sessionId, 'What can we do?');
@@ -162,7 +175,7 @@ describe('post-generation gate', () => {
 
   for (const [label, reply, rule] of blockedCases) {
     it(`suppresses ${label} and the customer never sees it`, async () => {
-      const { sessionId } = await openSession();
+      const sessionId = await openConfirmed();
       nextReply = reply;
 
       const { data, raw } = await turn(sessionId, 'What can we do?');
@@ -181,7 +194,7 @@ describe('post-generation gate', () => {
   }
 
   it('records the suppressed reply in the audit trace', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'We will begin legal action and take you to court.';
     await turn(sessionId, 'What can we do?');
 
@@ -205,38 +218,40 @@ describe('post-generation gate', () => {
   });
 
   it('records the gate on every turn, not only when it blocks', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'Of course. What would suit you?';
     await turn(sessionId, 'What can we do?');
 
     const gates = (await trace(sessionId)).filter(
       (e) => e.kind === 'gate' && e.gate === 'postgeneration',
     );
-    // The opening turn and the customer turn each produce a reply to screen.
-    assert.equal(gates.length, 2);
+    // The opening turn, the identity confirmation and this turn each produce a
+    // reply to screen.
+    assert.equal(gates.length, 3);
     for (const g of gates) assert.equal(g.kind === 'gate' && g.decision, 'pass');
   });
 
   it('validates figures against the matrix the server actually served', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
 
-    // Serve the matrix first, then quote one of its values.
-    pendingTools = [{ name: 'get_offer_matrix', input: { hardship_indicated: false } }];
-    nextReply = 'I can set up three payments of AED 1,083.';
+    // Serve the matrix first, then quote one of its values. Mohammed's balance
+    // is 22,100, so the three-month plan is 7,367.
+    pendingTools = [{ name: 'get_offer_matrix', input: {} }];
+    nextReply = 'I can set up three payments of AED 7,367.';
     const served = await turn(sessionId, 'Can we split it?');
     assert.equal(served.data.escalated, false, 'a served figure must be allowed');
 
     // A figure the matrix never returned, on a fresh session.
-    const second = await openSession();
-    pendingTools = [{ name: 'get_offer_matrix', input: { hardship_indicated: false } }];
+    const second = await openConfirmed();
+    pendingTools = [{ name: 'get_offer_matrix', input: {} }];
     nextReply = 'I can set up three payments of AED 777.';
-    const invented = await turn(second.sessionId, 'Can we split it?');
+    const invented = await turn(second, 'Can we split it?');
     assert.equal(invented.data.escalated, true);
     assert.equal(invented.data.state.blockedRule, 'off_matrix_offer');
   });
 
   it('allows the agent to repeat a figure the customer proposed', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'I am sorry, I cannot accept AED 450 as a settlement.';
 
     const { data } = await turn(sessionId, 'What if I give you 450 today?');
@@ -244,7 +259,7 @@ describe('post-generation gate', () => {
   });
 
   it('locks the session after a block — the next turn never reaches the model', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'We will take you to court.';
     await turn(sessionId, 'What can we do?');
 
@@ -255,7 +270,7 @@ describe('post-generation gate', () => {
   });
 
   it('flags the specific rule in the compliance panel', async () => {
-    const { sessionId } = await openSession();
+    const sessionId = await openConfirmed();
     nextReply = 'We may contact your employer about the arrears.';
     const { data } = await turn(sessionId, 'What can we do?');
 

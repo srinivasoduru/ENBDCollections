@@ -4,28 +4,37 @@ import { C } from '../shared/colors';
  * The estate diagram, drawn light-on-white at full bleed with 12–20px type
  * inside the SVG so it reads from across a meeting room.
  *
- * Layers top to bottom: customer channels, the supervisor, the four agents,
- * the deterministic compliance floor, the integration adapter, and the existing
+ * Layers top to bottom: customer channels, the supervisor, the agent row, the
+ * deterministic compliance floor, the integration adapter, and the existing
  * ENBD estate — which is drawn dashed because nothing in it changes.
+ *
+ * The Remediation Agent sits in the agent row but is drawn in the post-handover
+ * colour: it runs only after a conversation has stopped, and the enhanced terms
+ * it prepares are never reachable from a live call.
  */
 
 const MONO = 'IBM Plex Mono, monospace';
 const DISPLAY = 'Outfit, sans-serif';
 
+const AGENT_WIDTH = 226;
+
 const AGENTS = [
-  { x: 40, lever: 'LEVER 1', name: 'Segment Agent', sub: 'risk · self-cure · cluster' },
-  { x: 345, lever: 'LEVER 2', name: 'Treatment Agent', sub: 'contact scale · cadence' },
-  { x: 650, lever: 'LEVER 3', name: 'Engagement Agent', sub: 'omnichannel · AR / EN / HI / TL' },
-  { x: 955, lever: 'LEVER 4', name: 'Negotiation Agent', sub: 'offer matrix · PTP · payment' },
+  { x: 40, lever: 'LEVER 1', name: 'Segment Agent', sub: 'risk · self-cure · cluster', accent: C.blue },
+  { x: 286, lever: 'LEVER 2', name: 'Treatment Agent', sub: 'contact scale · cadence', accent: C.blue },
+  { x: 532, lever: 'LEVER 3', name: 'Engagement Agent', sub: 'omnichannel · AR / EN / HI / TL', accent: C.blue },
+  { x: 778, lever: 'LEVER 4', name: 'Negotiation Agent', sub: 'Debt Assist · PTP · payment', accent: C.blue },
+  // Deliberately set apart: it runs after the conversation has stopped, and its
+  // terms are never reachable from a live call.
+  { x: 1024, lever: 'HARDSHIP', name: 'Remediation Agent', sub: 'officer pack · post-handover', accent: C.green },
 ];
 
 /** Column centres shared by the agent boxes and the estate boxes below them. */
-const AGENT_STEMS = [182, 487, 792, 1097];
+const AGENT_STEMS = [153, 399, 645, 891, 1137];
 const ESTATE_STEMS = [199, 493, 787, 1081];
 
 const ESTATE = [
-  { x: 64, y: 662, cx: 199, label: 'Finacle core banking' },
-  { x: 358, y: 662, cx: 493, label: 'Collections system' },
+  { x: 64, y: 662, cx: 199, label: 'DCORE · collections SoR' },
+  { x: 358, y: 662, cx: 493, label: 'Core banking · balances' },
   { x: 652, y: 662, cx: 787, label: 'Dialer / contact centre' },
   { x: 946, y: 662, cx: 1081, label: 'Payment gateway (PCI)' },
   { x: 64, y: 726, cx: 199, label: 'AECB bureau feed' },
@@ -38,6 +47,7 @@ const LEGEND = [
   { fill: '#EEF2FA', stroke: C.navy, label: 'supervision' },
   { fill: '#FFFFFF', stroke: C.blue, label: 'agent layer' },
   { fill: '#FBF2F3', stroke: C.red, label: 'deterministic compliance floor' },
+  { fill: '#FFFFFF', stroke: C.green, label: 'post-handover, officer only' },
   { fill: '#F0F6F2', stroke: C.green, label: 'net-new integration surface' },
   { fill: '#F4F5F7', stroke: '#C8CED8', label: 'existing estate' },
 ];
@@ -52,7 +62,7 @@ export function ArchitectureDiagram() {
   return (
     <>
       <svg viewBox="0 0 1280 800" xmlns="http://www.w3.org/2000/svg" role="img"
-        aria-label="The agent fleet sits above the existing ENBD estate: customer channels feed a supervisor agent, four lever agents pass through a deterministic compliance floor into a tool-calling integration adapter, which reaches the unchanged existing systems.">
+        aria-label="The agent fleet sits above the existing ENBD estate: customer channels feed a supervisor agent; four lever agents plus a post-handover remediation agent pass through a deterministic compliance floor into a tool-calling integration adapter, which reaches the unchanged existing systems.">
         <defs>
           <Arrow id="arN" fill={C.slate} />
           <Arrow id="arB" fill={C.blue} />
@@ -66,7 +76,7 @@ export function ArchitectureDiagram() {
           CUSTOMER CHANNELS
         </text>
         <text x="640" y="50" textAnchor="middle" fill="#6B7686" fontFamily={MONO} fontSize="12">
-          WhatsApp · SMS · outbound voice · IVR · email · ENBD app
+          SMS · outbound voice · email · secure in-app messaging in ENBD X · inbound
         </text>
         <path d="M640,65 L640,94" stroke={C.slate} strokeWidth="1.6" markerEnd="url(#arN)" />
 
@@ -82,21 +92,27 @@ export function ArchitectureDiagram() {
           can halt any agent mid-action
         </text>
 
-        {AGENT_STEMS.map((x) => (
-          <path key={`b${x}`} d={`M${x},176 L${x},212`} stroke={C.blue} strokeWidth="1.6" markerEnd="url(#arB)" />
+        {AGENTS.map((a, i) => (
+          <path
+            key={`b${AGENT_STEMS[i]}`}
+            d={`M${AGENT_STEMS[i]},176 L${AGENT_STEMS[i]},212`}
+            stroke={a.accent}
+            strokeWidth="1.6"
+            markerEnd={a.accent === C.green ? 'url(#arG)' : 'url(#arB)'}
+          />
         ))}
 
         {/* Agent layer */}
         {AGENTS.map((a) => (
           <g key={a.name}>
-            <rect x={a.x} y="214" width="285" height="112" fill="#FFFFFF" stroke={C.blue} strokeWidth="1.5" />
-            <text x={a.x + 24} y="244" fill={C.blue} fontFamily={MONO} fontSize="12" fontWeight="600" letterSpacing="1">
+            <rect x={a.x} y="214" width={AGENT_WIDTH} height="112" fill="#FFFFFF" stroke={a.accent} strokeWidth="1.5" />
+            <text x={a.x + 22} y="244" fill={a.accent} fontFamily={MONO} fontSize="12" fontWeight="600" letterSpacing="1">
               {a.lever}
             </text>
-            <text x={a.x + 24} y="276" fill={C.navy} fontFamily={DISPLAY} fontSize="20" fontWeight="500">
+            <text x={a.x + 22} y="276" fill={C.navy} fontFamily={DISPLAY} fontSize="18" fontWeight="500">
               {a.name}
             </text>
-            <text x={a.x + 24} y="302" fill="#6B7686" fontFamily={MONO} fontSize="12">
+            <text x={a.x + 22} y="302" fill="#6B7686" fontFamily={MONO} fontSize="11">
               {a.sub}
             </text>
           </g>
@@ -112,8 +128,8 @@ export function ArchitectureDiagram() {
           COMPLIANCE FLOOR — DETERMINISTIC, NOT MODEL-JUDGED
         </text>
         <text x="640" y="426" textAnchor="middle" fill="#4A5A70" fontFamily={MONO} fontSize="12.5">
-          CBUAE contact hours &amp; frequency · 7-day letter SLA · hardship + dispute hard stop · AECB
-          disclosure · PDPL consent · Sharia messaging for EI
+          CBUAE contact hours &amp; frequency · identity before disclosure · 7-day letter SLA ·
+          hardship + dispute hard stop · AECB disclosure · PDPL consent
         </text>
         <text x="640" y="450" textAnchor="middle" fill={C.grey} fontFamily={MONO} fontSize="12">
           every agent action passes through this layer before it reaches a customer

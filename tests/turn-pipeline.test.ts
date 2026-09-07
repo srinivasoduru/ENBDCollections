@@ -27,6 +27,9 @@ function startUpstream(): Promise<number> {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
+      // Deliberately compliant and content-free: an AI disclosure plus an
+      // identity question. Anything naming a balance would be blocked by the
+      // premature-disclosure rule, which is tested on its own elsewhere.
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -37,7 +40,7 @@ function startUpstream(): Promise<number> {
           content: [
             {
               type: 'text',
-              text: 'This is Emirates NBD regarding the outstanding amount on your account.',
+              text: 'Good afternoon, I am an AI assistant of Emirates NBD. Am I speaking with the account holder?',
             },
           ],
           stop_reason: 'end_turn',
@@ -71,11 +74,12 @@ async function startApp(classifier: Classifier): Promise<void> {
   base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
 }
 
-const openSession = async (personaId = 'early'): Promise<CreateSessionResponse> => {
+/** `negotiate` is used throughout: `early` is suppressed and opens no session. */
+const openSession = async (personaId = 'negotiate'): Promise<CreateSessionResponse> => {
   const res = await fetch(`${base}/api/session`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ personaId }),
+    body: JSON.stringify({ personaId, contactHour: 14 }),
   });
   assert.equal(res.status, 201);
   return (await res.json()) as CreateSessionResponse;
@@ -191,6 +195,7 @@ describe('turn pipeline with the pre-flight gate', () => {
     // A separate app whose classifier always throws.
     const { createApp } = await import('../server/app');
     const failApp = createApp({ classifier: failingClassifier }).listen(0);
+    after(() => failApp.close());
     await new Promise((r) => failApp.once('listening', r));
     const failBase = `http://127.0.0.1:${(failApp.address() as AddressInfo).port}`;
 
@@ -198,7 +203,7 @@ describe('turn pipeline with the pre-flight gate', () => {
       await fetch(`${failBase}/api/session`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ personaId: 'early' }),
+        body: JSON.stringify({ personaId: 'negotiate', contactHour: 14 }),
       })
     ).json()) as CreateSessionResponse;
 
@@ -222,6 +227,7 @@ describe('turn pipeline with the pre-flight gate', () => {
   it('screens on patterns alone when no classifier is configured', async () => {
     const { createApp } = await import('../server/app');
     const bare = createApp({ classifier: null }).listen(0);
+    after(() => bare.close());
     await new Promise((r) => bare.once('listening', r));
     const bareBase = `http://127.0.0.1:${(bare.address() as AddressInfo).port}`;
 
@@ -234,7 +240,10 @@ describe('turn pipeline with the pre-flight gate', () => {
         })
       ).json()) as never;
 
-    const created = (await post('/api/session', { personaId: 'early' })) as CreateSessionResponse;
+    const created = (await post('/api/session', {
+      personaId: 'negotiate',
+      contactHour: 14,
+    })) as CreateSessionResponse;
 
     // Benign turns must still get through, or the demo escalates on every turn.
     const ordinary = (await post('/api/turn', {

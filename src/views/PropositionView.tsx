@@ -1,5 +1,5 @@
 import { Hero, SectionHead, StanceCard } from '../components/primitives';
-import { FIGURES, LEVERS, STANCES } from '../data/content';
+import { FIGURES, LEVERS, PROPOSITION, STANCES } from '../data/content';
 
 interface Props {
   showFigures: boolean;
@@ -12,8 +12,8 @@ export function PropositionView({ showFigures, showOwners }: Props) {
       <Hero
         lead
         eyebrow="01 · THE PROPOSITION"
-        title="An agent fleet that sits on top of Finacle, the collections system and the dialer — and works the book itself."
-        lede="Not a replacement for the ENBD stack. A reasoning layer above it. Each agent owns one lever of the collections value chain, calls the systems already in place, and operates inside CBUAE conduct rules that are enforced structurally — not left to a model's judgement."
+        title={PROPOSITION.title}
+        lede={PROPOSITION.lede}
       />
 
       {showFigures && (
@@ -83,11 +83,7 @@ export function PropositionView({ showFigures, showOwners }: Props) {
         </div>
 
         {showFigures && (
-          <p className="note">
-            Portfolio figures shown throughout this demo are illustrative and scaled to a
-            representative UAE retail unsecured book. Public ENBD figures cited on this page are from
-            ENBD's own FY-2025 and H1-2025 results releases.
-          </p>
+          <p className="note">{PROPOSITION.footnote}</p>
         )}
       </div>
     </div>

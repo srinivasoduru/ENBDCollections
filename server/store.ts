@@ -32,6 +32,26 @@ export interface Session {
   blockedRule: OutputRule | null;
   resolved: boolean;
 
+  /* ---- right-party verification ---- */
+  /** False until the person confirms they are the account holder. */
+  identityConfirmed: boolean;
+  /** Someone other than the account holder answered; the contact ends. */
+  thirdParty: boolean;
+  /** Null until the opening turn has been checked for the AI self-disclosure. */
+  aiDisclosed: boolean | null;
+
+  /* ---- pre-contact decisions ---- */
+  /** Hour of day the contact was attempted, for the CBUAE window check. */
+  contactHour: number;
+  /** The Segment Agent suppressed outreach; no conversation exists. */
+  suppressed: boolean;
+  /** A presenter overrode the suppression to show the conversation anyway. */
+  overrodeSuppression: boolean;
+
+  /* ---- Remediation Agent, post-handover ---- */
+  officerPack: Record<string, unknown> | null;
+  eosb: Record<string, unknown> | null;
+
   /**
    * Amounts the agent is allowed to state, accumulated as the conversation
    * runs: every number the offer matrix actually served, and every figure the
@@ -53,8 +73,20 @@ export interface Session {
   seq: number;
 }
 
+export interface CreateOptions {
+  /** Hour of day for the contact-eligibility check. */
+  contactHour: number;
+  suppressed: boolean;
+  overrodeSuppression: boolean;
+}
+
 export interface SessionStore {
-  create(personaId: string, mode: SessionMode, model: string | null): Session;
+  create(
+    personaId: string,
+    mode: SessionMode,
+    model: string | null,
+    options: CreateOptions,
+  ): Session;
   get(id: string): Session | undefined;
   save(session: Session): void;
   delete(id: string): void;
@@ -68,7 +100,12 @@ const TTL_MS = 6 * 60 * 60 * 1000;
 export class InMemorySessionStore implements SessionStore {
   private sessions = new Map<string, Session>();
 
-  create(personaId: string, mode: SessionMode, model: string | null): Session {
+  create(
+    personaId: string,
+    mode: SessionMode,
+    model: string | null,
+    options: CreateOptions,
+  ): Session {
     this.sweep();
     const now = Date.now();
     const session: Session = {
@@ -88,6 +125,14 @@ export class InMemorySessionStore implements SessionStore {
       escalationVia: null,
       blockedRule: null,
       resolved: false,
+      identityConfirmed: false,
+      thirdParty: false,
+      aiDisclosed: null,
+      contactHour: options.contactHour,
+      suppressed: options.suppressed,
+      overrodeSuppression: options.overrodeSuppression,
+      officerPack: null,
+      eosb: null,
       servedAmounts: new Set(),
       customerAmounts: new Set(),
       disclosed: null,

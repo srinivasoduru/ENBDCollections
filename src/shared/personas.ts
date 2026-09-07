@@ -12,6 +12,12 @@ export interface Persona {
   pd: string;
   priorPTP: number;
   salary: boolean;
+  /**
+   * The Segment Agent suppresses outreach on this account entirely — the
+   * self-cure model expects the customer to pay on their own. No session opens
+   * unless a presenter overrides it.
+   */
+  suppress?: boolean;
   desc: string;
   chips: string[];
 }
@@ -19,37 +25,43 @@ export interface Persona {
 export const PERSONAS: Persona[] = [
   {
     id: 'early',
-    label: 'Early bucket · self-cure edge',
-    name: 'Aisha Al Marzooqi',
+    label: 'Maya · self-cure',
+    name: 'Maya Haddad',
     acct: 'ENBD-4471',
     product: 'Credit Card — Skywards Signature',
-    balance: 3250,
-    dpd: 12,
+    balance: 6800,
+    dpd: 5,
     cluster: 'Cluster 1 — low risk, high tenure',
-    selfcure: '0.71 (high)',
+    selfcure: '0.86 (very high)',
     pd: 'Low',
     priorPTP: 0,
     salary: true,
-    desc: '12 DPD, low balance, strong payment history. Should resolve in one contact.',
-    chips: ['Hello?', "Yes I know, I've been travelling.", 'Can I pay it now?', "What's the balance again?"],
+    suppress: true,
+    desc: 'Priority customer, pays in full, missed a card payment abroad. Model says leave her alone.',
+    chips: [
+      'Why was I charged a late fee?',
+      "I've been travelling.",
+      'Can I pay it now?',
+      'Set up auto-pay please',
+    ],
   },
   {
     id: 'hardship',
-    label: 'Hardship — job loss',
-    name: 'Ramesh Pillai',
+    label: 'Ahmed · hardship',
+    name: 'Ahmed Al Balushi',
     acct: 'ENBD-8802',
     product: 'Personal Loan — salary transfer',
     balance: 47800,
-    dpd: 52,
+    dpd: 8,
     cluster: 'Cluster 3 — high risk, deteriorating',
     selfcure: '0.09 (very low)',
     pd: 'High',
     priorPTP: 1,
     salary: true,
-    desc: '52 DPD. Salary stopped crediting last month. Should trigger a hard stop.',
+    desc: 'Made redundant in March, salary credit stopped. Should trigger a hard stop.',
     chips: [
-      'My company let me go last month.',
-      'I have no income right now.',
+      'I lost my job in March.',
+      'I cannot pay right now.',
       "I want to pay, I just can't.",
       'Can you give me a few months?',
     ],
@@ -57,7 +69,7 @@ export const PERSONAS: Persona[] = [
   {
     id: 'dispute',
     label: 'Disputes the debt',
-    name: 'Sarah Haddad',
+    name: 'Sara Al Suwaidi',
     acct: 'ENBD-2319',
     product: 'Credit Card — Platinum',
     balance: 8940,
@@ -77,7 +89,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'negotiate',
-    label: 'Broken promise · will negotiate',
+    label: 'Broken promise',
     name: 'Mohammed Yusuf',
     acct: 'ENBD-6155',
     product: 'Personal Loan — salary transfer',
@@ -99,3 +111,6 @@ export const PERSONAS: Persona[] = [
 ];
 
 export const personaById = (id: string): Persona | undefined => PERSONAS.find((p) => p.id === id);
+
+/** First name, used for the identity check the agent must pass before disclosing. */
+export const firstName = (p: Persona): string => p.name.split(' ')[0];

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { collectNumbers, extractAmounts, hasSpelledAmount } from '../server/compliance/money';
-import { screenOutput, type AllowedAmounts } from '../server/compliance/output';
+import { screenOutput, type OutputContext } from '../server/compliance/output';
 
 /**
  * Post-generation gate — unit tests.
@@ -13,14 +13,18 @@ import { screenOutput, type AllowedAmounts } from '../server/compliance/output';
  * "must not fire" cases carry as much weight as the "must fire" ones.
  */
 
-const allowed = (over: Partial<AllowedAmounts> = {}): AllowedAmounts => ({
+const allowed = (over: Partial<OutputContext> = {}): OutputContext => ({
   served: new Set(),
   balance: 3250,
   customerProposed: new Set(),
+  // Most rules are exercised on a conversation where identity is already
+  // confirmed; premature disclosure has its own block below.
+  identityConfirmed: true,
+  toolNames: [],
   ...over,
 });
 
-const verdict = (reply: string, over?: Partial<AllowedAmounts>) => screenOutput(reply, allowed(over));
+const verdict = (reply: string, over?: Partial<OutputContext>) => screenOutput(reply, allowed(over));
 
 describe('monetary figure extraction', () => {
   const money: [string, number[]][] = [
