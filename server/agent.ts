@@ -10,7 +10,7 @@ import { PREFLIGHT_VERSIONS, screen } from './compliance/preflight';
 import { LOCKED_REPLY, REFUSED_REPLY, handoffFor } from './handoff';
 import { SESSION_OPENER, systemPrompt } from './prompt';
 import { scriptedTurn } from './script';
-import { checkDisclosure, isResolvingTool, stageForTool } from './state';
+import { isResolvingTool, namesBank, stageForTool, statesPurpose } from './state';
 import { appendTrace, type Session } from './store';
 import { TOOL_DEFS, asCategory, contactPermitted, contactWindowLabel, traceTool, type ToolCall } from './tools';
 
@@ -165,7 +165,16 @@ export function openOfficerPack(session: Session): void {
 function absorbAgentTurn(session: Session, text: string, source: 'model' | 'script' | 'canned'): void {
   const opening = session.agentTurns === 0;
   session.agentTurns += 1;
-  if (session.disclosed === null || opening) session.disclosed = checkDisclosure(text, opening);
+
+  // Identification and purpose land on different turns by design, so the two
+  // halves latch. Until the holder is confirmed the agent is forbidden from
+  // stating the purpose, so a missing purpose is not yet a failure — the guard
+  // stays pending rather than reporting a breach the design itself requires.
+  if (session.disclosed !== true) {
+    session.identified = session.identified || namesBank(text);
+    session.disclosed =
+      session.identified && statesPurpose(text) ? true : session.identityConfirmed ? false : null;
+  }
   // The CBUAE AI Guidance Note requires the agent to name itself as an AI
   // assistant at first contact. Read once, off the opening turn.
   if (opening) session.aiDisclosed = disclosesAi(text);

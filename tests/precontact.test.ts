@@ -203,6 +203,36 @@ describe('contact suppression', () => {
   });
 });
 
+/**
+ * Both pre-contact outcomes jump the session straight to `close`. Treating the
+ * stages before it as complete ticked off steps that never ran — the panel
+ * claimed the holder had been confirmed and the outcome logged on a call that
+ * was never placed. Nothing was conducted, so nothing is complete.
+ */
+describe('the pipeline panel when no contact was placed', () => {
+  const claimsProgress = (session: CreateSessionResponse): boolean =>
+    session.state.pipeline.some((s) => s.status === 'done');
+
+  it('claims no completed step after a refused contact', async () => {
+    const session = await open({ personaId: 'negotiate', contactHour: 22 });
+    assert.equal(claimsProgress(session), false);
+    const close = session.state.pipeline.find((s) => s.key === 'close');
+    assert.equal(close?.status, 'active');
+  });
+
+  it('claims no completed step after a suppressed contact', async () => {
+    const session = await open({ personaId: 'early', contactHour: 14 });
+    assert.equal(claimsProgress(session), false);
+  });
+
+  it('still tracks progress normally once a conversation exists', async () => {
+    const session = await open({ personaId: 'negotiate', contactHour: 14 });
+    const active = session.state.pipeline.filter((s) => s.status === 'active');
+    assert.equal(active.length, 1, 'a live conversation has exactly one active stage');
+    assert.equal(active[0]?.key, 'identify');
+  });
+});
+
 describe('the officer handover pack', () => {
   const hardshipTurn = async (): Promise<TurnResponse> => {
     const session = await open({ personaId: 'hardship', contactHour: 14 });

@@ -44,14 +44,34 @@ const RESOLVING_TOOLS = new Set(['log_promise_to_pay', 'initiate_payment']);
 export const stageForTool = (name: string): StageKey | undefined => STAGE_FOR_TOOL[name];
 export const isResolvingTool = (name: string): boolean => RESOLVING_TOOLS.has(name);
 
-/** Did the agent identify Emirates NBD and state the purpose of contact? */
-export function checkDisclosure(text: string, opening: boolean): boolean {
-  const named = /emirates nbd/i.test(text);
-  if (!opening) return named;
-  return named && /(outstanding|overdue|past due|payment|amount due|collect)/i.test(text);
-}
+/** Does this turn name the bank? Identification is expected on the opening turn. */
+export const namesBank = (text: string): boolean => /emirates nbd/i.test(text);
+
+/**
+ * Does this turn state the purpose of the contact?
+ *
+ * This cannot be read off the opening turn. Identity-before-disclosure means the
+ * opening turn may not name the debt at all — the post-generation gate blocks a
+ * reply that does. So the two halves of the disclosure obligation land on
+ * different turns and have to be latched across the session rather than
+ * evaluated on one.
+ */
+export const statesPurpose = (text: string): boolean =>
+  /(outstanding|overdue|past due|payment|amount due|collect)/i.test(text);
 
 function buildPipeline(session: Session): PipelineStep[] {
+  // A contact that was refused or suppressed jumps straight to `close`, and
+  // marking everything before it done would tick off steps that never ran —
+  // claiming the holder was confirmed and the outcome logged on a call that was
+  // never placed. Nothing was conducted, so nothing is complete.
+  const neverPlaced = !contactPermitted(session.contactHour) || session.suppressed;
+  if (neverPlaced) {
+    return PIPELINE.map((step) => ({
+      ...step,
+      status: step.key === 'close' ? 'active' : 'pending',
+    }));
+  }
+
   const idx = STAGE_ORDER.indexOf(session.stage);
   return PIPELINE.map((step, i) => {
     const done = i < idx || (session.resolved && i <= idx);
@@ -156,10 +176,10 @@ function buildGuards(session: Session): GuardView[] {
       title: 'Identification & purpose disclosure',
       detail:
         disclosed === null
-          ? "Checked against the agent's opening turn."
+          ? 'Emirates NBD is named at first contact; the purpose of the call follows once the holder is confirmed, not before.'
           : disclosed
             ? 'Detected — the agent identified Emirates NBD and stated the purpose of contact.'
-            : 'Not detected in the opening turn. In production this would fail QA before the call connected.',
+            : 'The holder was confirmed but the purpose of the call was not stated. In production this would fail QA.',
     },
     {
       id: 'sourced_claims',
