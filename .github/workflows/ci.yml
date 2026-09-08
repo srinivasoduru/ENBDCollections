@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to a branch supersedes the first; don't burn runners on a
+# commit nobody is waiting for.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The test runner uses `node --import tsx --test`, which needs Node 20.6+.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 203 tests. They stand up their own local HTTP stubs for the Anthropic
+      # API, so no credentials and no network access are needed.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
