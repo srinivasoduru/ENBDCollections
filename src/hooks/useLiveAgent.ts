@@ -67,6 +67,7 @@ export function useLiveAgent(): LiveAgentClient {
 
   // Read inside async callbacks, which must not close over a stale value.
   const sessionId = useRef<string | null>(null);
+  const escalated = useRef(false);
   const busyRef = useRef(false);
   const setBusyBoth = (v: boolean): void => {
     busyRef.current = v;
@@ -98,6 +99,7 @@ export function useLiveAgent(): LiveAgentClient {
   const clearSession = useCallback((next: Persona | null) => {
     sessionId.current = null;
     overrideRef.current = false;
+    escalated.current = false;
     setPersona(next);
     setState(null);
     setTranscript([]);
@@ -120,6 +122,7 @@ export function useLiveAgent(): LiveAgentClient {
             ...(override ? { override: true } : {}),
           });
           sessionId.current = data.sessionId;
+          escalated.current = data.state.escalated;
           setState(data.state);
           setTranscript(
             data.openingTurn
@@ -175,24 +178,32 @@ export function useLiveAgent(): LiveAgentClient {
     openFor(persona, contactHour, true);
   }, [clearSession, contactHour, openFor, persona]);
 
-  /** Appends the agent's turn, plus any notice and the escalation banner. */
+  /**
+   * Appends the agent's turn, plus any notice and the escalation banner.
+   *
+   * The escalation banner is shown on the transition only, so this needs the
+   * previous value — but it must not read it by nesting one state updater
+   * inside another. React may invoke an updater more than once for a single
+   * update, and under StrictMode it deliberately does, which appended every
+   * agent turn twice. The updaters here are pure; the transition is read from
+   * a ref instead.
+   */
   const absorb = useCallback((reply: string, next: SessionState, notice?: string) => {
-    setState((prev) => {
-      const wasEscalated = prev?.escalated ?? false;
-      setTranscript((t) => {
-        const out = [...t];
-        if (notice) out.push({ role: 'sys', text: notice });
-        out.push({ role: 'agent', text: reply });
-        if (next.escalated && !wasEscalated) {
-          out.push({
-            role: 'esc',
-            text: 'TRANSFERRED TO HUMAN FR OFFICER — autonomous handling ends here.',
-          });
-        }
-        return out;
-      });
-      return next;
+    const wasEscalated = escalated.current;
+    escalated.current = next.escalated;
+    setTranscript((t) => {
+      const out = [...t];
+      if (notice) out.push({ role: 'sys', text: notice });
+      out.push({ role: 'agent', text: reply });
+      if (next.escalated && !wasEscalated) {
+        out.push({
+          role: 'esc',
+          text: 'TRANSFERRED TO HUMAN FR OFFICER — autonomous handling ends here.',
+        });
+      }
+      return out;
     });
+    setState(next);
   }, []);
 
   const say = useCallback(

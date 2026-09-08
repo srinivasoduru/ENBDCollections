@@ -59,6 +59,9 @@ export interface Session {
    */
   servedAmounts: Set<number>;
   customerAmounts: Set<number>;
+  /** Half of the disclosure obligation: the agent named Emirates NBD. */
+  identified: boolean;
+  /** Both halves — identification and purpose. Null until it can be judged. */
   disclosed: boolean | null;
   locked: boolean;
 
@@ -135,6 +138,7 @@ export class InMemorySessionStore implements SessionStore {
       eosb: null,
       servedAmounts: new Set(),
       customerAmounts: new Set(),
+      identified: false,
       disclosed: null,
       locked: false,
       scriptStep: 0,

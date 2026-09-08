@@ -132,22 +132,25 @@ const trace = async (sessionId: string): Promise<TraceEntry[]> =>
     entries: TraceEntry[];
   }).entries;
 
+// One stub and one app for the whole file: the SDK caches its client on first
+// use, so restarting upstream per describe would leave later suites pointed at
+// a closed port.
+before(async () => {
+  const port = await startUpstream();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
+  const { createApp } = await import('../server/app');
+  app = createApp({ classifier: quietClassifier }).listen(0);
+  await new Promise((r) => app.once('listening', r));
+  base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+});
+
+after(() => {
+  app?.close();
+  upstream?.close();
+});
+
 describe('post-generation gate', () => {
-  before(async () => {
-    const port = await startUpstream();
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
-    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
-    const { createApp } = await import('../server/app');
-    app = createApp({ classifier: quietClassifier }).listen(0);
-    await new Promise((r) => app.once('listening', r));
-    base = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
-  });
-
-  after(() => {
-    app?.close();
-    upstream?.close();
-  });
-
   it('lets a compliant reply through untouched', async () => {
     const sessionId = await openConfirmed();
     nextReply = 'I can look at that with you. What would work for you this month?';
@@ -281,5 +284,50 @@ describe('post-generation gate', () => {
 
     const hardStop = data.state.guards.find((g) => g.id === 'hard_stop');
     assert.match(hardStop!.detail, /suppressed before the customer saw it/i);
+  });
+});
+
+/**
+ * Identification and purpose land on different turns, because identity-before-
+ * disclosure forbids naming the debt in the opening turn. Reading both halves
+ * off the opening turn made the guard report a breach on the very behaviour the
+ * design requires — a red compliance panel in front of a risk committee, caused
+ * by the agent doing the right thing.
+ */
+describe('disclosure guard', () => {
+  const disclosure = (state: { guards: { id: string; status: string; detail: string }[] }) => {
+    const guard = state.guards.find((g) => g.id === 'disclosure');
+    assert.ok(guard, 'the disclosure guard must be present');
+    return guard;
+  };
+
+  it('is pending, not flagged, while the holder is still unconfirmed', async () => {
+    const { state } = await openSession();
+    assert.equal(disclosure(state).status, 'pending');
+  });
+
+  it('passes once the purpose is stated after the holder is confirmed', async () => {
+    const { sessionId } = await openSession();
+    nextReply = 'Thank you. There is an outstanding amount on the account we should resolve.';
+    const { data } = await turn(sessionId, 'Yes, speaking.');
+    assert.equal(disclosure(data.state).status, 'pass');
+  });
+
+  it('stays passed on later turns that do not restate the purpose', async () => {
+    const { sessionId } = await openSession();
+    nextReply = 'Thank you. There is an outstanding amount on the account we should resolve.';
+    await turn(sessionId, 'Yes, speaking.');
+
+    nextReply = 'Understood. Which of those would suit you?';
+    const { data } = await turn(sessionId, 'Let me think.');
+    assert.equal(disclosure(data.state).status, 'pass');
+  });
+
+  it('flags when the holder is confirmed and the purpose is never stated', async () => {
+    const { sessionId } = await openSession();
+    nextReply = 'Thank you. How would you like to proceed?';
+    const { data } = await turn(sessionId, 'Yes, speaking.');
+    assert.equal(disclosure(data.state).status, 'flag');
+    assert.match(disclosure(data.state).detail, /purpose of the call was not stated/i);
   });
 });
